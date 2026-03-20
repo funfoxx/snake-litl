@@ -1,2 +1,5 @@
 pytest
 matplotlib
+numpy
+gymnasium
+stable-baselines3
