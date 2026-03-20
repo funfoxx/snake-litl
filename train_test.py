@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import argparse
 import json
 import shutil
+from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import numpy as np
@@ -11,18 +13,91 @@ from stable_baselines3.common.monitor import Monitor
 
 from snake_env import SnakeEnv
 
-ITERATION = 1
-TOTAL_TIMESTEPS = 200_000
-EVAL_FREQ = 5_000
-EVAL_EPISODES = 50
-BENCHMARK_EPISODES = 1_000
-SEED = 7
-
 ROOT = Path(__file__).resolve().parent
-ARTIFACT_DIR = ROOT / "artifacts" / f"iteration{ITERATION}"
-BEST_MODEL_PATH = ARTIFACT_DIR / "best_model.zip"
-SUMMARY_PATH = ARTIFACT_DIR / "summary.json"
-BEST_EXPORT_PATH = ROOT / "best" / f"iteration{ITERATION}.zip"
+
+
+@dataclass(slots=True)
+class RunConfig:
+    iteration: int = 2
+    run_name: str = "main"
+    total_timesteps: int = 300_000
+    eval_freq: int = 10_000
+    eval_episodes: int = 50
+    benchmark_episodes: int = 1_000
+    seed: int = 7
+    learning_rate: float = 1e-4
+    buffer_size: int = 200_000
+    learning_starts: int = 5_000
+    batch_size: int = 256
+    gamma: float = 0.99
+    train_freq: int = 4
+    gradient_steps: int = 1
+    target_update_interval: int = 4_000
+    exploration_fraction: float = 0.30
+    exploration_initial_eps: float = 1.0
+    exploration_final_eps: float = 0.02
+    net_arch: tuple[int, ...] = (256, 256, 128)
+    export_best: bool = False
+
+
+def parse_args() -> RunConfig:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--iteration", type=int, default=2)
+    parser.add_argument("--run-name", type=str, default="main")
+    parser.add_argument("--timesteps", type=int, default=300_000)
+    parser.add_argument("--eval-freq", type=int, default=10_000)
+    parser.add_argument("--eval-episodes", type=int, default=50)
+    parser.add_argument("--benchmark-episodes", type=int, default=1_000)
+    parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--buffer-size", type=int, default=200_000)
+    parser.add_argument("--learning-starts", type=int, default=5_000)
+    parser.add_argument("--batch-size", type=int, default=256)
+    parser.add_argument("--gamma", type=float, default=0.99)
+    parser.add_argument("--train-freq", type=int, default=4)
+    parser.add_argument("--gradient-steps", type=int, default=1)
+    parser.add_argument("--target-update-interval", type=int, default=4_000)
+    parser.add_argument("--exploration-fraction", type=float, default=0.30)
+    parser.add_argument("--exploration-initial-eps", type=float, default=1.0)
+    parser.add_argument("--exploration-final-eps", type=float, default=0.02)
+    parser.add_argument(
+        "--net-arch",
+        type=int,
+        nargs="+",
+        default=[256, 256, 128],
+    )
+    parser.add_argument("--export-best", action="store_true")
+    args = parser.parse_args()
+
+    return RunConfig(
+        iteration=args.iteration,
+        run_name=args.run_name,
+        total_timesteps=args.timesteps,
+        eval_freq=args.eval_freq,
+        eval_episodes=args.eval_episodes,
+        benchmark_episodes=args.benchmark_episodes,
+        seed=args.seed,
+        learning_rate=args.learning_rate,
+        buffer_size=args.buffer_size,
+        learning_starts=args.learning_starts,
+        batch_size=args.batch_size,
+        gamma=args.gamma,
+        train_freq=args.train_freq,
+        gradient_steps=args.gradient_steps,
+        target_update_interval=args.target_update_interval,
+        exploration_fraction=args.exploration_fraction,
+        exploration_initial_eps=args.exploration_initial_eps,
+        exploration_final_eps=args.exploration_final_eps,
+        net_arch=tuple(args.net_arch),
+        export_best=args.export_best,
+    )
+
+
+def iteration_artifact_dir(config: RunConfig) -> Path:
+    base_dir = ROOT / "artifacts" / f"iteration{config.iteration}"
+    if config.run_name == "main":
+        return base_dir
+    return base_dir / config.run_name
 
 
 def score_from_stats(avg_length: float, avg_steps: float) -> float:
@@ -96,78 +171,91 @@ class ScoreEvalCallback(BaseCallback):
         return True
 
 
-def build_model() -> DQN:
+def build_model(config: RunConfig) -> DQN:
     train_env = Monitor(SnakeEnv())
     return DQN(
         "MlpPolicy",
         train_env,
-        learning_rate=3e-4,
-        buffer_size=100_000,
-        learning_starts=2_000,
-        batch_size=128,
-        gamma=0.99,
-        train_freq=4,
-        gradient_steps=1,
-        target_update_interval=2_000,
-        exploration_fraction=0.35,
-        exploration_initial_eps=1.0,
-        exploration_final_eps=0.02,
-        policy_kwargs={"net_arch": [256, 256]},
+        learning_rate=config.learning_rate,
+        buffer_size=config.buffer_size,
+        learning_starts=config.learning_starts,
+        batch_size=config.batch_size,
+        gamma=config.gamma,
+        train_freq=config.train_freq,
+        gradient_steps=config.gradient_steps,
+        target_update_interval=config.target_update_interval,
+        exploration_fraction=config.exploration_fraction,
+        exploration_initial_eps=config.exploration_initial_eps,
+        exploration_final_eps=config.exploration_final_eps,
+        policy_kwargs={"net_arch": list(config.net_arch)},
         verbose=0,
-        seed=SEED,
+        seed=config.seed,
         device="auto",
     )
 
 
 def main():
-    ARTIFACT_DIR.mkdir(parents=True, exist_ok=True)
+    config = parse_args()
+    artifact_dir = iteration_artifact_dir(config)
+    best_model_path = artifact_dir / "best_model.zip"
+    summary_path = artifact_dir / "summary.json"
+    best_export_path = ROOT / "best" / f"iteration{config.iteration}.zip"
+
+    artifact_dir.mkdir(parents=True, exist_ok=True)
+    if best_model_path.exists():
+        best_model_path.unlink()
 
     eval_env = SnakeEnv()
     callback = ScoreEvalCallback(
         eval_env=eval_env,
-        eval_freq=EVAL_FREQ,
-        n_eval_episodes=EVAL_EPISODES,
-        best_model_path=BEST_MODEL_PATH,
+        eval_freq=config.eval_freq,
+        n_eval_episodes=config.eval_episodes,
+        best_model_path=best_model_path,
     )
 
-    model = build_model()
-    print(f"training iteration {ITERATION} for {TOTAL_TIMESTEPS} timesteps")
-    model.learn(total_timesteps=TOTAL_TIMESTEPS, callback=callback, progress_bar=False)
+    model = build_model(config)
+    print(
+        f"training iteration {config.iteration} "
+        f"run={config.run_name} "
+        f"for {config.total_timesteps} timesteps"
+    )
+    model.learn(
+        total_timesteps=config.total_timesteps,
+        callback=callback,
+        progress_bar=False,
+    )
 
-    if not BEST_MODEL_PATH.exists():
-        model.save(BEST_MODEL_PATH)
-        callback.best_timestep = TOTAL_TIMESTEPS
-        callback.best_score = float("-inf")
+    if not best_model_path.exists():
+        model.save(best_model_path)
+        callback.best_timestep = config.total_timesteps
 
-    best_model = DQN.load(BEST_MODEL_PATH)
+    best_model = DQN.load(best_model_path)
     benchmark_env = SnakeEnv()
-    benchmark = evaluate_model(best_model, benchmark_env, BENCHMARK_EPISODES)
+    benchmark = evaluate_model(best_model, benchmark_env, config.benchmark_episodes)
 
     summary = {
-        "iteration": ITERATION,
-        "seed": SEED,
-        "total_timesteps": TOTAL_TIMESTEPS,
-        "eval_freq": EVAL_FREQ,
-        "eval_episodes": EVAL_EPISODES,
-        "benchmark_episodes": BENCHMARK_EPISODES,
+        "config": asdict(config),
         "best_eval_score": callback.best_score,
         "best_eval_timestep": callback.best_timestep,
         "evaluations": callback.evaluations,
         "benchmark": benchmark,
     }
 
-    with SUMMARY_PATH.open("w", encoding="utf-8") as handle:
+    with summary_path.open("w", encoding="utf-8") as handle:
         json.dump(summary, handle, indent=2)
 
-    shutil.copyfile(BEST_MODEL_PATH, BEST_EXPORT_PATH)
+    if config.export_best:
+        shutil.copyfile(best_model_path, best_export_path)
 
     print()
-    print("benchmark results over 1000 games:")
+    print(f"benchmark results over {config.benchmark_episodes} games:")
     print(f"avg snake length: {benchmark['avg_length']:.3f}")
     print(f"avg steps: {benchmark['avg_steps']:.3f}")
     print(f"score: {benchmark['score']:.9f}")
     print(f"best eval timestep: {callback.best_timestep}")
     print(f"best eval score: {callback.best_score:.9f}")
+    if config.export_best:
+        print(f"exported model: {best_export_path}")
 
     benchmark_env.close()
     eval_env.close()
