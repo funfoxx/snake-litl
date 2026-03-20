@@ -14,7 +14,7 @@ Model architecture, rewards, hyperparameters, training code, evaluation code, et
 
 ## History
 
-Read the Markdown files in `history/` to see what previous iterations did and their results. Use that context to make changes that increase the score: avg length / avg steps.
+Read the Markdown files in `history/` to see what previous iterations did and their results. Use that context to make changes that increase the score: (avg length)^2 / avg steps.
 
 Each iteration produce two files in `history/`:
 
