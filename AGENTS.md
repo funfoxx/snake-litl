@@ -6,7 +6,7 @@ Use LLMs to iteratively improve the performance of a reinforcement learning mode
 
 ## Constraints on code changes
 
-Do not modify anything in the `snake/` folder or this `AGENTS.md` file.
+Do not modify anything in the `snake/` folder or this `AGENTS.md` file. You must train a DQN model. You are not allowed to train any other model besides a DQN model.
 
 You can add new entries to `history/` and `best/`, but you can not delete or modify any previous entries. Only add one model to `best/` per iteration; only add the best model found during the main run.
 
@@ -14,7 +14,9 @@ Model architecture, rewards, hyperparameters, training code, evaluation code, et
 
 ## History
 
-Read the Markdown files in `history/` to see what previous iterations did and their results. Use that context to make changes that increase the score: (avg length)^2 / avg steps.
+Read the Markdown files in `history/` to see what previous iterations did and their results. 
+
+Use that context to make changes that increase the average length of the snake as much as possible while decreasing the average steps as much as possible.
 
 Each iteration produce two files in `history/`:
 
