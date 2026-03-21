@@ -117,7 +117,7 @@ class SnakeEnv(gym.Env):
         left = LEFT_OF[self.snake.direc]
         right = RIGHT_OF[self.snake.direc]
         food_forward, food_left = self._food_vector()
-        obs = np.array(
+        return np.array(
             [
                 self._danger(left),
                 self._danger(self.snake.direc),
@@ -135,7 +135,6 @@ class SnakeEnv(gym.Env):
             ],
             dtype=np.float32,
         )
-        return obs
 
     def _score(self):
         if self.steps == 0:
