@@ -4,6 +4,7 @@ import argparse
 import json
 import random
 import shutil
+from collections import deque
 from dataclasses import asdict, dataclass
 from pathlib import Path
 
@@ -21,12 +22,14 @@ ROOT = Path(__file__).resolve().parent
 
 @dataclass(slots=True)
 class RunConfig:
-    iteration: int = 3
+    iteration: int = 4
     run_name: str = "main"
-    total_timesteps: int = 200_000
+    total_timesteps: int = 70_000
     eval_freq: int = 5_000
-    eval_episodes: int = 50
+    eval_episodes: int = 100
     benchmark_episodes: int = 1_000
+    eval_seed_base: int = 10_000
+    benchmark_seed_base: int = 0
     seed: int = 7
     learning_rate: float = 3e-4
     buffer_size: int = 150_000
@@ -44,6 +47,7 @@ class RunConfig:
     per_beta_start: float = 0.4
     per_beta_end: float = 1.0
     priority_epsilon: float = 1e-3
+    n_step: int = 1
     max_grad_norm: float = 10.0
     export_best: bool = False
     device: str = "cpu"
@@ -51,12 +55,14 @@ class RunConfig:
 
 def parse_args() -> RunConfig:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--iteration", type=int, default=3)
+    parser.add_argument("--iteration", type=int, default=4)
     parser.add_argument("--run-name", type=str, default="main")
-    parser.add_argument("--timesteps", type=int, default=200_000)
+    parser.add_argument("--timesteps", type=int, default=70_000)
     parser.add_argument("--eval-freq", type=int, default=5_000)
-    parser.add_argument("--eval-episodes", type=int, default=50)
+    parser.add_argument("--eval-episodes", type=int, default=100)
     parser.add_argument("--benchmark-episodes", type=int, default=1_000)
+    parser.add_argument("--eval-seed-base", type=int, default=10_000)
+    parser.add_argument("--benchmark-seed-base", type=int, default=0)
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--learning-rate", type=float, default=3e-4)
     parser.add_argument("--buffer-size", type=int, default=150_000)
@@ -74,6 +80,7 @@ def parse_args() -> RunConfig:
     parser.add_argument("--per-beta-start", type=float, default=0.4)
     parser.add_argument("--per-beta-end", type=float, default=1.0)
     parser.add_argument("--priority-epsilon", type=float, default=1e-3)
+    parser.add_argument("--n-step", type=int, default=1)
     parser.add_argument("--max-grad-norm", type=float, default=10.0)
     parser.add_argument("--device", type=str, default="cpu")
     parser.add_argument("--export-best", action="store_true")
@@ -86,6 +93,8 @@ def parse_args() -> RunConfig:
         eval_freq=args.eval_freq,
         eval_episodes=args.eval_episodes,
         benchmark_episodes=args.benchmark_episodes,
+        eval_seed_base=args.eval_seed_base,
+        benchmark_seed_base=args.benchmark_seed_base,
         seed=args.seed,
         learning_rate=args.learning_rate,
         buffer_size=args.buffer_size,
@@ -103,6 +112,7 @@ def parse_args() -> RunConfig:
         per_beta_start=args.per_beta_start,
         per_beta_end=args.per_beta_end,
         priority_epsilon=args.priority_epsilon,
+        n_step=max(1, args.n_step),
         max_grad_norm=args.max_grad_norm,
         export_best=args.export_best,
         device=args.device,
@@ -133,6 +143,30 @@ def linear_schedule(step: int, duration: int, start: float, end: float) -> float
     return start + progress * (end - start)
 
 
+def aggregate_n_step_transition(
+    transitions: deque[tuple[np.ndarray, int, float, np.ndarray, bool]],
+    gamma: float,
+    n_step: int,
+) -> tuple[np.ndarray, int, float, np.ndarray, bool, float]:
+    reward = 0.0
+    discount = 1.0
+    steps = 0
+    next_state = transitions[0][3]
+    done = transitions[0][4]
+
+    for state, action, step_reward, step_next_state, step_done in list(transitions)[:n_step]:
+        reward += discount * float(step_reward)
+        discount *= gamma
+        steps += 1
+        next_state = step_next_state
+        done = step_done
+        if step_done:
+            break
+
+    state, action = transitions[0][0], int(transitions[0][1])
+    return state, action, reward, next_state, done, float(gamma**steps)
+
+
 class PrioritizedReplayBuffer:
     def __init__(
         self,
@@ -154,6 +188,7 @@ class PrioritizedReplayBuffer:
         self.actions = np.zeros((capacity,), dtype=np.int64)
         self.rewards = np.zeros((capacity,), dtype=np.float32)
         self.dones = np.zeros((capacity,), dtype=np.float32)
+        self.discounts = np.zeros((capacity,), dtype=np.float32)
 
     def __len__(self) -> int:
         return self.size
@@ -168,6 +203,7 @@ class PrioritizedReplayBuffer:
         reward: float,
         next_state: np.ndarray,
         done: bool,
+        discount: float,
     ) -> None:
         idx = self.write_index
         self.states[idx] = state
@@ -175,6 +211,7 @@ class PrioritizedReplayBuffer:
         self.rewards[idx] = reward
         self.next_states[idx] = next_state
         self.dones[idx] = float(done)
+        self.discounts[idx] = discount
 
         tree_idx = idx + self.capacity - 1
         self.tree.data[idx] = idx
@@ -215,6 +252,7 @@ class PrioritizedReplayBuffer:
             "rewards": self.rewards[batch_indices],
             "next_states": self.next_states[batch_indices],
             "dones": self.dones[batch_indices],
+            "discounts": self.discounts[batch_indices],
             "weights": weights.astype(np.float32),
             "tree_indices": tree_indices,
         }
@@ -315,6 +353,9 @@ class DQNAgent:
             batch["next_states"], dtype=torch.float32, device=self.device
         )
         dones = torch.as_tensor(batch["dones"], dtype=torch.float32, device=self.device)
+        discounts = torch.as_tensor(
+            batch["discounts"], dtype=torch.float32, device=self.device
+        )
         weights = torch.as_tensor(batch["weights"], dtype=torch.float32, device=self.device)
 
         q_values = self.online_net(states).gather(1, actions.unsqueeze(1)).squeeze(1)
@@ -322,7 +363,7 @@ class DQNAgent:
         with torch.no_grad():
             next_actions = self.online_net(next_states).argmax(dim=1, keepdim=True)
             next_q_values = self.target_net(next_states).gather(1, next_actions).squeeze(1)
-            targets = rewards + self.gamma * next_q_values * (1.0 - dones)
+            targets = rewards + discounts * next_q_values * (1.0 - dones)
 
         td_errors = targets - q_values
         losses = F.smooth_l1_loss(q_values, targets, reduction="none")
@@ -379,12 +420,13 @@ def evaluate_agent(
     agent: DQNAgent,
     env: SnakeEnv,
     episodes: int,
+    base_seed: int = 0,
 ) -> dict[str, float]:
     snake_lengths = []
     steps = []
 
-    for episode_seed in range(episodes):
-        obs, _ = env.reset(seed=episode_seed)
+    for episode_idx in range(episodes):
+        obs, _ = env.reset(seed=base_seed + episode_idx)
         done = False
         while not done:
             action = agent.select_action(obs, epsilon=0.0)
@@ -434,6 +476,7 @@ def train(config: RunConfig) -> dict[str, object]:
 
     obs, _ = env.reset(seed=config.seed)
     exploration_steps = int(config.total_timesteps * config.exploration_fraction)
+    n_step_buffer: deque[tuple[np.ndarray, int, float, np.ndarray, bool]] = deque()
 
     print(
         f"training iteration {config.iteration} "
@@ -458,10 +501,29 @@ def train(config: RunConfig) -> dict[str, object]:
         action = agent.select_action(obs, epsilon=epsilon)
         next_obs, reward, terminated, truncated, _ = env.step(action)
         done = terminated or truncated
-        replay_buffer.add(obs, action, reward, next_obs, done)
+        transition = (obs, action, reward, next_obs, done)
+        n_step_buffer.append(transition)
+        if len(n_step_buffer) >= config.n_step:
+            replay_buffer.add(
+                *aggregate_n_step_transition(
+                    transitions=n_step_buffer,
+                    gamma=config.gamma,
+                    n_step=config.n_step,
+                )
+            )
+            n_step_buffer.popleft()
         obs = next_obs
 
         if done:
+            while n_step_buffer:
+                replay_buffer.add(
+                    *aggregate_n_step_transition(
+                        transitions=n_step_buffer,
+                        gamma=config.gamma,
+                        n_step=config.n_step,
+                    )
+                )
+                n_step_buffer.popleft()
             obs, _ = env.reset()
 
         if (
@@ -482,7 +544,12 @@ def train(config: RunConfig) -> dict[str, object]:
             agent.sync_target()
 
         if timestep % config.eval_freq == 0:
-            metrics = evaluate_agent(agent, eval_env, config.eval_episodes)
+            metrics = evaluate_agent(
+                agent,
+                eval_env,
+                config.eval_episodes,
+                base_seed=config.eval_seed_base,
+            )
             metrics["timesteps"] = int(timestep)
             metrics["epsilon"] = float(epsilon)
             metrics["beta"] = float(beta)
@@ -517,7 +584,12 @@ def train(config: RunConfig) -> dict[str, object]:
 
     if not best_model_path.exists():
         best_timestep = config.total_timesteps
-        last_metrics = evaluate_agent(agent, eval_env, config.eval_episodes)
+        last_metrics = evaluate_agent(
+            agent,
+            eval_env,
+            config.eval_episodes,
+            base_seed=config.eval_seed_base,
+        )
         best_score = last_metrics["score"]
         agent.save(
             best_model_path,
@@ -530,7 +602,12 @@ def train(config: RunConfig) -> dict[str, object]:
 
     best_agent = DQNAgent.load(best_model_path, device=config.device)
     benchmark_env = SnakeEnv()
-    benchmark = evaluate_agent(best_agent, benchmark_env, config.benchmark_episodes)
+    benchmark = evaluate_agent(
+        best_agent,
+        benchmark_env,
+        config.benchmark_episodes,
+        base_seed=config.benchmark_seed_base,
+    )
 
     summary = {
         "config": asdict(config),

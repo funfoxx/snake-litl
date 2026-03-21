@@ -1,0 +1,69 @@
+{
+  "config": {
+    "iteration": 4,
+    "run_name": "sanity",
+    "total_timesteps": 2000,
+    "eval_freq": 1000,
+    "eval_episodes": 5,
+    "benchmark_episodes": 20,
+    "seed": 7,
+    "learning_rate": 0.0003,
+    "buffer_size": 5000,
+    "learning_starts": 256,
+    "batch_size": 64,
+    "gamma": 0.99,
+    "train_freq": 4,
+    "gradient_steps": 1,
+    "target_update_interval": 500,
+    "exploration_fraction": 0.35,
+    "exploration_initial_eps": 1.0,
+    "exploration_final_eps": 0.03,
+    "hidden_sizes": [
+      128,
+      128
+    ],
+    "per_alpha": 0.6,
+    "per_beta_start": 0.4,
+    "per_beta_end": 1.0,
+    "priority_epsilon": 0.001,
+    "n_step": 3,
+    "max_grad_norm": 10.0,
+    "export_best": false,
+    "device": "cpu"
+  },
+  "best_eval_score": 3.427762039660057,
+  "best_eval_timestep": 2000,
+  "evaluations": [
+    {
+      "episodes": 5,
+      "avg_length": 19.8,
+      "avg_steps": 116.2,
+      "score": 3.3738382099827886,
+      "max_length": 27,
+      "timesteps": 1000,
+      "epsilon": 0.030000000000000027,
+      "beta": 0.6997,
+      "mean_loss": 0.277472765147686,
+      "mean_abs_td_error": 1.7597922146320344
+    },
+    {
+      "episodes": 5,
+      "avg_length": 22.0,
+      "avg_steps": 141.2,
+      "score": 3.427762039660057,
+      "max_length": 25,
+      "timesteps": 2000,
+      "epsilon": 0.030000000000000027,
+      "beta": 0.9997,
+      "mean_loss": 0.24606145538389682,
+      "mean_abs_td_error": 2.206177895069122
+    }
+  ],
+  "benchmark": {
+    "episodes": 20,
+    "avg_length": 24.9,
+    "avg_steps": 150.65,
+    "score": 4.115565881181546,
+    "max_length": 33
+  }
+}
