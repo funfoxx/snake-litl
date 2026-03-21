@@ -44,11 +44,13 @@ class SnakeEnv(gym.Env):
         self.inner_size = size - 2
         self.revisit_window = revisit_window
 
-        # 3 danger bits + 2 food coordinates + 1 length feature + 8 rays * 3 values
+        # 3 danger bits + 2 food coords + 1 length + 24 ray values
+        # + 1 reachable-space ratio + 1 food-reachable flag + 2 tail coords
+        # + 3 candidate actions * (blocked, food distance, reachable-space, food-reachable)
         self.observation_space = gym.spaces.Box(
             low=-1.0,
             high=1.0,
-            shape=(30,),
+            shape=(46,),
             dtype=np.float32,
         )
         self.action_space = gym.spaces.Discrete(len(RELATIVE_ACTIONS))
@@ -59,6 +61,7 @@ class SnakeEnv(gym.Env):
         self.steps_since_food = 0
         self.recent_heads: deque[tuple[int, int]] = deque(maxlen=self.revisit_window)
         self.last_food_distance = 0
+        self.last_space_ratio = 0.0
 
     def _get_obs(self) -> np.ndarray:
         head = self.snake.head()
@@ -106,8 +109,51 @@ class SnakeEnv(gym.Env):
             dtype=np.float32,
         )
 
+        current_space_ratio, current_food_reachable = self._reachable_region_features(head)
+        structure_features = np.array(
+            [current_space_ratio, current_food_reachable],
+            dtype=np.float32,
+        )
+
+        tail = self.snake.tail()
+        tail_dx = tail.x - head.x
+        tail_dy = tail.y - head.y
+        tail_forward, tail_right = self._to_relative(tail_dx, tail_dy, forward)
+        tail_features = np.array(
+            [tail_forward / denom, tail_right / denom],
+            dtype=np.float32,
+        )
+
+        candidate_features = []
+        max_food_dist = float(max(1, 2 * self.inner_size))
+        for action in RELATIVE_ACTIONS:
+            next_head = head.adj(self._resolve_action(action))
+            blocked = float(self._is_blocked(next_head))
+            if blocked:
+                candidate_features.extend([1.0, 1.0, 0.0, 0.0])
+                continue
+
+            next_food_distance = Pos.manhattan_dist(next_head, food) / max_food_dist
+            next_space_ratio, next_food_reachable = self._reachable_region_features(next_head)
+            candidate_features.extend(
+                [
+                    blocked,
+                    next_food_distance,
+                    next_space_ratio,
+                    next_food_reachable,
+                ]
+            )
+
         return np.concatenate(
-            [danger, food_features, length_feature, np.asarray(ray_features, dtype=np.float32)]
+            [
+                danger,
+                food_features,
+                length_feature,
+                np.asarray(ray_features, dtype=np.float32),
+                structure_features,
+                tail_features,
+                np.asarray(candidate_features, dtype=np.float32),
+            ]
         ).astype(np.float32)
 
     def _get_info(self) -> dict[str, int | float]:
@@ -131,11 +177,13 @@ class SnakeEnv(gym.Env):
         self.recent_heads.clear()
         self.recent_heads.append((self.snake.head().x, self.snake.head().y))
         self.last_food_distance = self._food_distance()
+        self.last_space_ratio, _ = self._reachable_region_features(self.snake.head())
 
         return self._get_obs(), self._get_info()
 
     def step(self, action: int):
         previous_distance = self.last_food_distance
+        previous_space_ratio = self.last_space_ratio
         direction = self._resolve_action(int(action))
         len_before = self.snake.len()
 
@@ -146,6 +194,7 @@ class SnakeEnv(gym.Env):
         terminated = self.snake.dead
         truncated = False
         reward = -0.02
+        current_space_ratio = 0.0
 
         if not terminated:
             if not self.snake_map.has_food():
@@ -155,6 +204,8 @@ class SnakeEnv(gym.Env):
             if self.snake_map.is_full():
                 terminated = True
                 reward += 25.0
+            else:
+                current_space_ratio, _ = self._reachable_region_features(self.snake.head())
 
         got_food = self.snake.len() > len_before
         if got_food:
@@ -169,6 +220,8 @@ class SnakeEnv(gym.Env):
             elif current_distance > previous_distance:
                 reward -= 0.3
 
+            reward += 0.2 * (current_space_ratio - previous_space_ratio)
+
             head_key = (self.snake.head().x, self.snake.head().y)
             if head_key in self.recent_heads:
                 reward -= 0.2
@@ -179,6 +232,7 @@ class SnakeEnv(gym.Env):
                 reward -= 3.0
 
         self.last_food_distance = self._food_distance() if self.snake_map.is_inside(self.snake.head()) else 0
+        self.last_space_ratio = current_space_ratio
         observation = self._get_obs()
 
         return observation, reward, terminated, truncated, self._get_info()
@@ -202,6 +256,44 @@ class SnakeEnv(gym.Env):
 
     def _max_steps_without_food(self) -> int:
         return 40 + 8 * self.snake.len()
+
+    def _reachable_region_features(self, start: Pos) -> tuple[float, float]:
+        if not self.snake_map.is_inside(start):
+            return 0.0, 0.0
+
+        if self._is_blocked(start) and start != self.snake.head():
+            return 0.0, 0.0
+
+        food = self.snake.map.food
+        queue = deque([(start.x, start.y)])
+        visited = {(start.x, start.y)}
+        reachable = 0
+        food_reachable = 0.0
+
+        while queue:
+            x, y = queue.popleft()
+            reachable += 1
+            if food is not None and x == food.x and y == food.y:
+                food_reachable = 1.0
+
+            for dx, dy in DIRECTION_VECTORS.values():
+                nx = x + dx
+                ny = y + dy
+                if (nx, ny) in visited:
+                    continue
+
+                pos = Pos(nx, ny)
+                if not self.snake_map.is_inside(pos):
+                    continue
+
+                point_type = self.snake_map.point(pos).type
+                if point_type not in (PointType.EMPTY, PointType.FOOD):
+                    continue
+
+                visited.add((nx, ny))
+                queue.append((nx, ny))
+
+        return reachable / float(self.snake.map.capacity), food_reachable
 
     def _relative_ray_directions(self, forward: Direc) -> list[tuple[int, int]]:
         forward_delta, right_delta = self._forward_right_basis(forward)

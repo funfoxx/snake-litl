@@ -1,0 +1,62 @@
+[
+  {
+    "timesteps": 5000,
+    "checkpoint_path": "runs/iteration2/checkpoints/step_5000.zip",
+    "metrics": {
+      "episodes": 20,
+      "avg_snake_length": 2.0,
+      "avg_steps": 56.0,
+      "avg_return": -14.719999313354492,
+      "median_snake_length": 2.0,
+      "median_steps": 56.0,
+      "max_snake_length": 2,
+      "min_steps": 56,
+      "score": 0.0357142873108387
+    }
+  },
+  {
+    "timesteps": 10000,
+    "checkpoint_path": "runs/iteration2/checkpoints/step_10000.zip",
+    "metrics": {
+      "episodes": 20,
+      "avg_snake_length": 22.799999237060547,
+      "avg_steps": 146.8000030517578,
+      "avg_return": 280.0566101074219,
+      "median_snake_length": 23.5,
+      "median_steps": 154.0,
+      "max_snake_length": 36,
+      "min_steps": 32,
+      "score": 0.15531334280967712
+    }
+  },
+  {
+    "timesteps": 15000,
+    "checkpoint_path": "runs/iteration2/checkpoints/step_15000.zip",
+    "metrics": {
+      "episodes": 20,
+      "avg_snake_length": 22.649999618530273,
+      "avg_steps": 135.35000610351562,
+      "avg_return": 277.0887756347656,
+      "median_snake_length": 22.5,
+      "median_steps": 132.5,
+      "max_snake_length": 35,
+      "min_steps": 32,
+      "score": 0.16734391450881958
+    }
+  },
+  {
+    "timesteps": 20000,
+    "checkpoint_path": "runs/iteration2/checkpoints/step_20000.zip",
+    "metrics": {
+      "episodes": 20,
+      "avg_snake_length": 23.0,
+      "avg_steps": 138.89999389648438,
+      "avg_return": 284.9085693359375,
+      "median_snake_length": 23.0,
+      "median_steps": 125.5,
+      "max_snake_length": 43,
+      "min_steps": 32,
+      "score": 0.16558675467967987
+    }
+  }
+]

@@ -1,0 +1,95 @@
+{
+  "episodes": 100,
+  "seed": 15007,
+  "records": [
+    {
+      "timesteps": 5000,
+      "checkpoint_path": "runs/iter2_probe20k/checkpoints/step_5000.zip",
+      "metrics": {
+        "episodes": 100,
+        "avg_snake_length": 2.0399999618530273,
+        "avg_steps": 56.38999938964844,
+        "avg_return": -14.364799499511719,
+        "median_snake_length": 2.0,
+        "median_steps": 56.0,
+        "max_snake_length": 3,
+        "min_steps": 56,
+        "score": 0.03617662563920021
+      }
+    },
+    {
+      "timesteps": 10000,
+      "checkpoint_path": "runs/iter2_probe20k/checkpoints/step_10000.zip",
+      "metrics": {
+        "episodes": 100,
+        "avg_snake_length": 23.670000076293945,
+        "avg_steps": 157.8300018310547,
+        "avg_return": 292.54693603515625,
+        "median_snake_length": 24.0,
+        "median_steps": 155.0,
+        "max_snake_length": 41,
+        "min_steps": 27,
+        "score": 0.14997148513793945
+      }
+    },
+    {
+      "timesteps": 15000,
+      "checkpoint_path": "runs/iter2_probe20k/checkpoints/step_15000.zip",
+      "metrics": {
+        "episodes": 100,
+        "avg_snake_length": 22.260000228881836,
+        "avg_steps": 134.9600067138672,
+        "avg_return": 270.7398376464844,
+        "median_snake_length": 22.0,
+        "median_steps": 135.0,
+        "max_snake_length": 43,
+        "min_steps": 28,
+        "score": 0.16493774950504303
+      }
+    },
+    {
+      "timesteps": 20000,
+      "checkpoint_path": "runs/iter2_probe20k/checkpoints/step_20000.zip",
+      "metrics": {
+        "episodes": 100,
+        "avg_snake_length": 22.06999969482422,
+        "avg_steps": 135.1300048828125,
+        "avg_return": 267.65557861328125,
+        "median_snake_length": 22.0,
+        "median_steps": 132.0,
+        "max_snake_length": 36,
+        "min_steps": 28,
+        "score": 0.16332419216632843
+      }
+    },
+    {
+      "timesteps": 20000,
+      "checkpoint_path": "runs/iter2_probe20k/final_model.zip",
+      "metrics": {
+        "episodes": 100,
+        "avg_snake_length": 22.799999237060547,
+        "avg_steps": 138.77999877929688,
+        "avg_return": 278.5765075683594,
+        "median_snake_length": 23.0,
+        "median_steps": 138.0,
+        "max_snake_length": 35,
+        "min_steps": 28,
+        "score": 0.16428880393505096
+      }
+    }
+  ],
+  "best_checkpoint_path": "runs/iter2_probe20k/checkpoints/step_10000.zip",
+  "best_model_path": "runs/iter2_probe20k/best_model.zip",
+  "best_timesteps": 10000,
+  "best_metrics": {
+    "episodes": 100,
+    "avg_snake_length": 23.670000076293945,
+    "avg_steps": 157.8300018310547,
+    "avg_return": 292.54693603515625,
+    "median_snake_length": 24.0,
+    "median_steps": 155.0,
+    "max_snake_length": 41,
+    "min_steps": 27,
+    "score": 0.14997148513793945
+  }
+}

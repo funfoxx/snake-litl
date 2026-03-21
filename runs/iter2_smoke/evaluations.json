@@ -1,0 +1,47 @@
+[
+  {
+    "timesteps": 2000,
+    "checkpoint_path": "runs/iter2_smoke/checkpoints/step_2000.zip",
+    "metrics": {
+      "episodes": 5,
+      "avg_snake_length": 2.0,
+      "avg_steps": 56.0,
+      "avg_return": -14.719999313354492,
+      "median_snake_length": 2.0,
+      "median_steps": 56.0,
+      "max_snake_length": 2,
+      "min_steps": 56,
+      "score": 0.0357142873108387
+    }
+  },
+  {
+    "timesteps": 4000,
+    "checkpoint_path": "runs/iter2_smoke/checkpoints/step_4000.zip",
+    "metrics": {
+      "episodes": 5,
+      "avg_snake_length": 2.0,
+      "avg_steps": 56.0,
+      "avg_return": -14.719999313354492,
+      "median_snake_length": 2.0,
+      "median_steps": 56.0,
+      "max_snake_length": 2,
+      "min_steps": 56,
+      "score": 0.0357142873108387
+    }
+  },
+  {
+    "timesteps": 6000,
+    "checkpoint_path": "runs/iter2_smoke/checkpoints/step_6000.zip",
+    "metrics": {
+      "episodes": 5,
+      "avg_snake_length": 18.399999618530273,
+      "avg_steps": 105.5999984741211,
+      "avg_return": 209.3823699951172,
+      "median_snake_length": 16.0,
+      "median_steps": 108.0,
+      "max_snake_length": 26,
+      "min_steps": 54,
+      "score": 0.17424242198467255
+    }
+  }
+]

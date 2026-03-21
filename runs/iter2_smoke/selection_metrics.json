@@ -1,0 +1,80 @@
+{
+  "episodes": 20,
+  "seed": 15007,
+  "records": [
+    {
+      "timesteps": 2000,
+      "checkpoint_path": "runs/iter2_smoke/checkpoints/step_2000.zip",
+      "metrics": {
+        "episodes": 20,
+        "avg_snake_length": 2.0,
+        "avg_steps": 56.0,
+        "avg_return": -14.719999313354492,
+        "median_snake_length": 2.0,
+        "median_steps": 56.0,
+        "max_snake_length": 2,
+        "min_steps": 56,
+        "score": 0.0357142873108387
+      }
+    },
+    {
+      "timesteps": 4000,
+      "checkpoint_path": "runs/iter2_smoke/checkpoints/step_4000.zip",
+      "metrics": {
+        "episodes": 20,
+        "avg_snake_length": 2.0,
+        "avg_steps": 56.0,
+        "avg_return": -14.719999313354492,
+        "median_snake_length": 2.0,
+        "median_steps": 56.0,
+        "max_snake_length": 2,
+        "min_steps": 56,
+        "score": 0.0357142873108387
+      }
+    },
+    {
+      "timesteps": 6000,
+      "checkpoint_path": "runs/iter2_smoke/checkpoints/step_6000.zip",
+      "metrics": {
+        "episodes": 20,
+        "avg_snake_length": 20.25,
+        "avg_steps": 127.25,
+        "avg_return": 238.50936889648438,
+        "median_snake_length": 20.0,
+        "median_steps": 126.5,
+        "max_snake_length": 28,
+        "min_steps": 63,
+        "score": 0.15913556516170502
+      }
+    },
+    {
+      "timesteps": 6000,
+      "checkpoint_path": "runs/iter2_smoke/final_model.zip",
+      "metrics": {
+        "episodes": 20,
+        "avg_snake_length": 19.799999237060547,
+        "avg_steps": 123.30000305175781,
+        "avg_return": 232.55276489257812,
+        "median_snake_length": 18.5,
+        "median_steps": 118.5,
+        "max_snake_length": 29,
+        "min_steps": 54,
+        "score": 0.16058392822742462
+      }
+    }
+  ],
+  "best_checkpoint_path": "runs/iter2_smoke/checkpoints/step_6000.zip",
+  "best_model_path": "runs/iter2_smoke/best_model.zip",
+  "best_timesteps": 6000,
+  "best_metrics": {
+    "episodes": 20,
+    "avg_snake_length": 20.25,
+    "avg_steps": 127.25,
+    "avg_return": 238.50936889648438,
+    "median_snake_length": 20.0,
+    "median_steps": 126.5,
+    "max_snake_length": 28,
+    "min_steps": 63,
+    "score": 0.15913556516170502
+  }
+}
