@@ -2,7 +2,7 @@ import random
 
 import gymnasium as gym
 import numpy as np
-from snake.base import Direc, Map, Pos, Snake
+from snake.base import Direc, Map, PointType, Pos, Snake
 from snake.solver.greedy import GreedySolver
 
 
@@ -33,11 +33,32 @@ HEADING_INDEX = {
     Direc.DOWN: 3,
 }
 
+FIXED_START_DIRECTION = Direc.RIGHT
+FIXED_START_BODIES = (
+    Pos(1, 4),
+    Pos(1, 3),
+    Pos(1, 2),
+    Pos(1, 1),
+)
+FIXED_START_TYPES = (
+    PointType.HEAD_R,
+    PointType.BODY_HOR,
+    PointType.BODY_HOR,
+    PointType.BODY_HOR,
+)
+
 
 class SnakeEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, size=10, step_penalty=0.01, max_idle_steps=None, max_episode_steps=None):
+    def __init__(
+        self,
+        size=10,
+        step_penalty=0.01,
+        max_idle_steps=None,
+        max_episode_steps=None,
+        fixed_start=True,
+    ):
         super().__init__()
         self.size = size
         self.playable_size = size - 2
@@ -46,6 +67,7 @@ class SnakeEnv(gym.Env):
         self.step_penalty = step_penalty
         self.max_idle_steps = max_idle_steps or max(40, 2 * self.capacity)
         self.max_episode_steps = max_episode_steps or (12 * self.capacity)
+        self.fixed_start = fixed_start
 
         self.observation_space = gym.spaces.Box(
             low=-1.0,
@@ -60,6 +82,16 @@ class SnakeEnv(gym.Env):
         self.steps = 0
         self.steps_since_food = 0
         self.last_food_distance = 0.0
+
+    def _make_snake(self):
+        if not self.fixed_start:
+            return Snake(self.snake_map)
+        return Snake(
+            self.snake_map,
+            FIXED_START_DIRECTION,
+            [Pos(pos.x, pos.y) for pos in FIXED_START_BODIES],
+            list(FIXED_START_TYPES),
+        )
 
     def _relative_direction(self, action):
         move = RELATIVE_ACTIONS[int(action)]
@@ -213,7 +245,7 @@ class SnakeEnv(gym.Env):
             np.random.seed(seed)
 
         self.snake_map = Map(self.size, self.size)
-        self.snake = Snake(self.snake_map)
+        self.snake = self._make_snake()
         self.snake_map.create_rand_food()
         self.steps = 0
         self.steps_since_food = 0
