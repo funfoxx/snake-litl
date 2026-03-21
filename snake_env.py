@@ -27,12 +27,12 @@ class SnakeEnv(gym.Env):
         self.size = size
         self.capacity = (self.size - 2) * (self.size - 2)
 
-        # 4 global progress features + 8 successor-state features for each
+        # 5 global progress features + 10 successor-state features for each
         # relative action (left, straight, right).
         self.observation_space = gym.spaces.Box(
             low=-1.0,
             high=1.0,
-            shape=(28,),
+            shape=(35,),
             dtype=np.float32,
         )
         self.action_space = gym.spaces.Discrete(3)
@@ -92,6 +92,15 @@ class SnakeEnv(gym.Env):
         if distance is None:
             return -1.0
         return float(np.clip(1.0 - (2.0 * distance / max(1, self.capacity)), -1.0, 1.0))
+
+    def _current_food_path_length(self) -> int | None:
+        if self.snake_map.food is None:
+            return 0
+        return self._shortest_path_length(
+            self.snake.head(),
+            self.snake_map.food,
+            set(self.snake.bodies),
+        )
 
     def _transition_bodies(self, direction: Direc) -> tuple[list[Pos], bool]:
         new_head = self.snake.head().adj(direction)
@@ -163,14 +172,15 @@ class SnakeEnv(gym.Env):
         direction = self._action_to_direction(action)
         new_bodies, got_food = self._transition_bodies(direction)
         if not new_bodies:
-            return [-1.0] * 8
+            return [-1.0] * 10
 
         new_head = new_bodies[0]
         occupied = set(new_bodies)
+        path_before = self._current_food_path_length()
         distance_before = Pos.manhattan_dist(self.snake.head(), self.snake_map.food)
 
         if got_food and len(new_bodies) >= self.capacity:
-            return [1.0] * 8
+            return [1.0] * 10
 
         if got_food:
             food_reachable = 1.0
@@ -186,33 +196,43 @@ class SnakeEnv(gym.Env):
             food_distance = self._normalize_distance(shortest_path)
 
             distance_after = Pos.manhattan_dist(new_head, self.snake_map.food)
-            if distance_after < distance_before:
+            if path_before is not None and shortest_path is not None:
+                if shortest_path < path_before:
+                    progress = 1.0
+                elif shortest_path > path_before:
+                    progress = -1.0
+                else:
+                    progress = 0.0
+            elif path_before is None and shortest_path is not None:
+                progress = 1.0
+            elif path_before is not None and shortest_path is None:
+                progress = -1.0
+            elif distance_after < distance_before:
                 progress = 1.0
             elif distance_after > distance_before:
                 progress = -1.0
             else:
                 progress = 0.0
 
-        reachable_ratio = self._normalize_ratio(
-            self._reachable_count(new_head, occupied) / float(self.capacity)
-        )
+        reachable_count = self._reachable_count(new_head, occupied)
+        reachable_ratio = self._normalize_ratio(reachable_count / float(self.capacity))
         branching_ratio = self._normalize_ratio(
             self._branching_factor(new_head, occupied) / 4.0
         )
+        free_cells = max(1, self.capacity - len(new_bodies))
+        space_margin_ratio = self._normalize_ratio((reachable_count - 1) / float(free_cells))
 
         tail_reachable = 1.0
+        tail_distance = 1.0
         if len(new_bodies) > 2:
-            tail_reachable = (
-                1.0
-                if self._shortest_path_length(
-                    new_head,
-                    new_bodies[-1],
-                    occupied,
-                    goal_is_passable=True,
-                )
-                is not None
-                else -1.0
+            tail_path = self._shortest_path_length(
+                new_head,
+                new_bodies[-1],
+                occupied,
+                goal_is_passable=True,
             )
+            tail_reachable = 1.0 if tail_path is not None else -1.0
+            tail_distance = self._normalize_distance(tail_path)
 
         safe_moves = 0
         for next_direction in (
@@ -230,8 +250,10 @@ class SnakeEnv(gym.Env):
             food_reachable,
             food_distance,
             reachable_ratio,
+            space_margin_ratio,
             branching_ratio,
             tail_reachable,
+            tail_distance,
             safe_moves_ratio,
             progress,
         ]
@@ -242,6 +264,7 @@ class SnakeEnv(gym.Env):
         starvation_ratio = 1.0 - (
             self.steps_since_food / float(self._max_steps_without_food())
         )
+        occupancy_ratio = self.snake.len() / float(self.capacity)
 
         action_features = []
         for action in range(3):
@@ -253,6 +276,7 @@ class SnakeEnv(gym.Env):
                 lateral_food,
                 float(np.clip(length_ratio, 0.0, 1.0)),
                 float(np.clip(starvation_ratio, -1.0, 1.0)),
+                float(np.clip((2.0 * occupancy_ratio) - 1.0, -1.0, 1.0)),
             ]
             + action_features,
             dtype=np.float32,
@@ -279,6 +303,7 @@ class SnakeEnv(gym.Env):
         direction = self._action_to_direction(int(action))
         head_before = self.snake.head()
         distance_before = Pos.manhattan_dist(head_before, self.snake_map.food)
+        path_before = self._current_food_path_length()
         length_before = self.snake.len()
 
         self.snake.move(direction)
@@ -296,28 +321,46 @@ class SnakeEnv(gym.Env):
         terminated = self.snake.dead or self.snake_map.is_full()
         truncated = self.steps_since_food >= self._max_steps_without_food()
 
-        reward = -0.01
+        starvation_progress = self.steps_since_food / float(self._max_steps_without_food())
+        reward = -0.008 - 0.032 * float(np.clip(starvation_progress, 0.0, 1.0))
         if terminated:
-            reward = 10.0 if self.snake_map.is_full() else -2.5
+            reward = 12.0 if self.snake_map.is_full() else -2.75
         elif truncated:
-            reward = -1.0
+            reward = -1.25
         elif got_food:
-            reward = 2.5 + 0.1 * self.snake.len()
+            reward = 2.75 + 0.08 * self.snake.len()
         else:
             distance_after = Pos.manhattan_dist(self.snake.head(), self.snake_map.food)
-            if distance_after < distance_before:
-                reward += 0.15
+            path_after = self._current_food_path_length()
+            if path_before is not None and path_after is not None:
+                if path_after < path_before:
+                    reward += 0.18
+                elif path_after > path_before:
+                    reward -= 0.18
+            elif path_before is None and path_after is not None:
+                reward += 0.10
+            elif path_before is not None and path_after is None:
+                reward -= 0.22
+            elif distance_after < distance_before:
+                reward += 0.10
             elif distance_after > distance_before:
-                reward -= 0.15
+                reward -= 0.10
 
             head = self.snake.head()
             visit_key = (head.x, head.y)
             self.visit_counts[visit_key] += 1
-            reward -= 0.02 * min(self.visit_counts[visit_key] - 1, 4)
+            reward -= 0.015 * min(self.visit_counts[visit_key] - 1, 6)
 
         observation = self._get_obs()
         info = self._get_info()
         info["got_food"] = got_food
-        info["terminated_reason"] = "starved" if truncated and not terminated else None
+        if truncated and not terminated:
+            info["terminated_reason"] = "starved"
+        elif terminated and self.snake.dead:
+            info["terminated_reason"] = "dead"
+        elif terminated:
+            info["terminated_reason"] = "full"
+        else:
+            info["terminated_reason"] = None
 
         return observation, reward, terminated, truncated, info
