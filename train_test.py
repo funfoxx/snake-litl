@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import dataclasses
 import json
 import os
 import shutil
@@ -21,7 +22,7 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.monitor import Monitor
 from stable_baselines3.common.utils import set_random_seed
 
-from snake_env import SnakeEnv
+from snake_env import SnakeEnv, SnakeEnvConfig
 
 
 def parse_args() -> argparse.Namespace:
@@ -36,12 +37,38 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--run-dir", type=Path, default=None)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
     parser.add_argument("--exploration-fraction", type=float, default=0.25)
+    parser.add_argument("--verbose", type=int, default=0)
+    parser.add_argument("--step-penalty", type=float, default=-0.02)
+    parser.add_argument("--closer-reward", type=float, default=0.3)
+    parser.add_argument("--farther-penalty", type=float, default=-0.3)
+    parser.add_argument("--space-delta-scale", type=float, default=0.2)
+    parser.add_argument("--revisit-penalty", type=float, default=-0.2)
+    parser.add_argument("--starvation-base", type=int, default=40)
+    parser.add_argument("--starvation-scale", type=int, default=8)
+    parser.add_argument("--starvation-penalty", type=float, default=-3.0)
+    parser.add_argument("--no-progress-threshold", type=int, default=0)
+    parser.add_argument("--no-progress-penalty", type=float, default=0.0)
     parser.add_argument("--skip-best-copy", action="store_true")
     return parser.parse_args()
 
 
-def make_env(seed: int) -> Monitor:
-    env = Monitor(SnakeEnv())
+def build_env_config(args: argparse.Namespace) -> SnakeEnvConfig:
+    return SnakeEnvConfig(
+        step_penalty=args.step_penalty,
+        closer_reward=args.closer_reward,
+        farther_penalty=args.farther_penalty,
+        space_delta_scale=args.space_delta_scale,
+        revisit_penalty=args.revisit_penalty,
+        starvation_base=args.starvation_base,
+        starvation_scale=args.starvation_scale,
+        starvation_penalty=args.starvation_penalty,
+        no_progress_threshold=args.no_progress_threshold,
+        no_progress_penalty=-abs(args.no_progress_penalty),
+    )
+
+
+def make_env(seed: int, env_config: SnakeEnvConfig) -> Monitor:
+    env = Monitor(SnakeEnv(config=env_config))
     env.reset(seed=seed)
     env.action_space.seed(seed)
     return env
@@ -52,6 +79,7 @@ def build_model(
     seed: int,
     learning_rate: float,
     exploration_fraction: float,
+    verbose: int,
 ) -> DQN:
     return DQN(
         "MlpPolicy",
@@ -69,14 +97,19 @@ def build_model(
         exploration_final_eps=0.02,
         max_grad_norm=10.0,
         policy_kwargs={"net_arch": [256, 256, 256, 128]},
-        verbose=1,
+        verbose=verbose,
         seed=seed,
         device="auto",
     )
 
 
-def evaluate_model(model: DQN, episodes: int, seed: int) -> dict[str, float | int]:
-    env = SnakeEnv()
+def evaluate_model(
+    model: DQN,
+    episodes: int,
+    seed: int,
+    env_config: SnakeEnvConfig,
+) -> dict[str, float | int]:
+    env = SnakeEnv(config=env_config)
     lengths = []
     steps = []
     returns = []
@@ -117,9 +150,9 @@ def evaluate_model(model: DQN, episodes: int, seed: int) -> dict[str, float | in
 
 def metrics_sort_key(metrics: dict[str, float | int]) -> tuple[float, float, float, float]:
     return (
+        float(metrics["score"]),
         float(metrics["avg_snake_length"]),
         -float(metrics["avg_steps"]),
-        float(metrics["score"]),
         float(metrics["avg_return"]),
     )
 
@@ -131,12 +164,14 @@ class PeriodicCheckpointCallback(BaseCallback):
         eval_freq: int,
         eval_episodes: int,
         eval_seed: int,
+        env_config: SnakeEnvConfig,
     ) -> None:
         super().__init__()
         self.run_dir = run_dir
         self.eval_freq = eval_freq
         self.eval_episodes = eval_episodes
         self.eval_seed = eval_seed
+        self.env_config = env_config
         self.checkpoint_dir = self.run_dir / "checkpoints"
         self.evaluations_path = self.run_dir / "evaluations.json"
         self.evaluations: list[dict[str, object]] = []
@@ -154,6 +189,7 @@ class PeriodicCheckpointCallback(BaseCallback):
             self.model,
             episodes=self.eval_episodes,
             seed=self.eval_seed,
+            env_config=self.env_config,
         )
         record: dict[str, object] = {
             "timesteps": self.num_timesteps,
@@ -187,6 +223,7 @@ def select_best_checkpoint(
     selection_episodes: int,
     selection_seed: int,
     final_timesteps: int,
+    env_config: SnakeEnvConfig,
 ) -> dict[str, object]:
     checkpoint_dir = run_dir / "checkpoints"
     candidates = sorted(checkpoint_dir.glob("step_*.zip"), key=lambda path: checkpoint_timesteps(path, final_timesteps))
@@ -199,7 +236,12 @@ def select_best_checkpoint(
 
     for candidate in candidates:
         model = DQN.load(candidate)
-        metrics = evaluate_model(model, episodes=selection_episodes, seed=selection_seed)
+        metrics = evaluate_model(
+            model,
+            episodes=selection_episodes,
+            seed=selection_seed,
+            env_config=env_config,
+        )
         record: dict[str, object] = {
             "timesteps": checkpoint_timesteps(candidate, final_timesteps),
             "checkpoint_path": str(candidate),
@@ -236,13 +278,15 @@ def main() -> None:
     run_dir.mkdir(parents=True, exist_ok=True)
 
     set_random_seed(args.seed)
+    env_config = build_env_config(args)
 
-    env = make_env(args.seed)
+    env = make_env(args.seed, env_config)
     model = build_model(
         env,
         args.seed,
         learning_rate=args.learning_rate,
         exploration_fraction=args.exploration_fraction,
+        verbose=args.verbose,
     )
 
     checkpoint_callback = PeriodicCheckpointCallback(
@@ -250,6 +294,7 @@ def main() -> None:
         eval_freq=args.eval_freq,
         eval_episodes=args.eval_episodes,
         eval_seed=args.seed + 10_000,
+        env_config=env_config,
     )
 
     start_time = time.time()
@@ -266,6 +311,7 @@ def main() -> None:
         selection_episodes=args.selection_episodes,
         selection_seed=args.seed + 15_000,
         final_timesteps=args.timesteps,
+        env_config=env_config,
     )
     best_model_path = Path(selection["best_model_path"])
 
@@ -274,6 +320,7 @@ def main() -> None:
         best_model,
         episodes=args.benchmark_episodes,
         seed=args.seed + 20_000,
+        env_config=env_config,
     )
 
     metrics = {
@@ -286,6 +333,13 @@ def main() -> None:
         "benchmark_episodes": args.benchmark_episodes,
         "learning_rate": args.learning_rate,
         "exploration_fraction": args.exploration_fraction,
+        "env_config": dataclasses.asdict(env_config),
+        "checkpoint_selection_rule": [
+            "higher score",
+            "then higher average snake length",
+            "then lower average steps",
+            "then higher average return",
+        ],
         "training_time_seconds": training_time_seconds,
         "best_model_path": str(best_model_path),
         "final_model_path": str(final_model_path),

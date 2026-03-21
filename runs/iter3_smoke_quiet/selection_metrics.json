@@ -1,0 +1,35 @@
+{
+  "episodes": 2,
+  "seed": 15007,
+  "records": [
+    {
+      "timesteps": 64,
+      "checkpoint_path": "runs/iter3_smoke_quiet/final_model.zip",
+      "metrics": {
+        "episodes": 2,
+        "avg_snake_length": 2.0,
+        "avg_steps": 56.0,
+        "avg_return": -14.720000267028809,
+        "median_snake_length": 2.0,
+        "median_steps": 56.0,
+        "max_snake_length": 2,
+        "min_steps": 56,
+        "score": 0.0357142873108387
+      }
+    }
+  ],
+  "best_checkpoint_path": "runs/iter3_smoke_quiet/final_model.zip",
+  "best_model_path": "runs/iter3_smoke_quiet/best_model.zip",
+  "best_timesteps": 64,
+  "best_metrics": {
+    "episodes": 2,
+    "avg_snake_length": 2.0,
+    "avg_steps": 56.0,
+    "avg_return": -14.720000267028809,
+    "median_snake_length": 2.0,
+    "median_steps": 56.0,
+    "max_snake_length": 2,
+    "min_steps": 56,
+    "score": 0.0357142873108387
+  }
+}

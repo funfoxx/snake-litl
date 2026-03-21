@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import random
 from collections import deque
+from dataclasses import dataclass
 
 import gymnasium as gym
 import numpy as np
@@ -36,13 +37,37 @@ DIRECTION_VECTORS = {
 }
 
 
+@dataclass(frozen=True)
+class SnakeEnvConfig:
+    step_penalty: float = -0.02
+    food_base_reward: float = 10.0
+    food_length_scale: float = 0.2
+    board_clear_bonus: float = 25.0
+    death_penalty: float = -10.0
+    closer_reward: float = 0.3
+    farther_penalty: float = -0.3
+    space_delta_scale: float = 0.2
+    revisit_penalty: float = -0.2
+    starvation_penalty: float = -3.0
+    starvation_base: int = 40
+    starvation_scale: int = 8
+    no_progress_threshold: int = 0
+    no_progress_penalty: float = -0.0
+
+
 class SnakeEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, size: int = 10, revisit_window: int = 12):
+    def __init__(
+        self,
+        size: int = 10,
+        revisit_window: int = 12,
+        config: SnakeEnvConfig | None = None,
+    ):
         self.size = size
         self.inner_size = size - 2
         self.revisit_window = revisit_window
+        self.config = config or SnakeEnvConfig()
 
         # 3 danger bits + 2 food coords + 1 length + 24 ray values
         # + 1 reachable-space ratio + 1 food-reachable flag + 2 tail coords
@@ -62,6 +87,7 @@ class SnakeEnv(gym.Env):
         self.recent_heads: deque[tuple[int, int]] = deque(maxlen=self.revisit_window)
         self.last_food_distance = 0
         self.last_space_ratio = 0.0
+        self.no_progress_steps = 0
 
     def _get_obs(self) -> np.ndarray:
         head = self.snake.head()
@@ -178,6 +204,7 @@ class SnakeEnv(gym.Env):
         self.recent_heads.append((self.snake.head().x, self.snake.head().y))
         self.last_food_distance = self._food_distance()
         self.last_space_ratio, _ = self._reachable_region_features(self.snake.head())
+        self.no_progress_steps = 0
 
         return self._get_obs(), self._get_info()
 
@@ -193,7 +220,7 @@ class SnakeEnv(gym.Env):
 
         terminated = self.snake.dead
         truncated = False
-        reward = -0.02
+        reward = self.config.step_penalty
         current_space_ratio = 0.0
 
         if not terminated:
@@ -203,33 +230,45 @@ class SnakeEnv(gym.Env):
 
             if self.snake_map.is_full():
                 terminated = True
-                reward += 25.0
+                reward += self.config.board_clear_bonus
             else:
                 current_space_ratio, _ = self._reachable_region_features(self.snake.head())
 
         got_food = self.snake.len() > len_before
         if got_food:
-            reward += 10.0 + 0.2 * self.snake.len()
+            reward += self.config.food_base_reward + self.config.food_length_scale * self.snake.len()
             self.steps_since_food = 0
+            self.no_progress_steps = 0
         elif terminated:
-            reward -= 10.0
+            reward += self.config.death_penalty
+            self.no_progress_steps = 0
         else:
             current_distance = self._food_distance()
             if current_distance < previous_distance:
-                reward += 0.3
+                reward += self.config.closer_reward
+                self.no_progress_steps = 0
             elif current_distance > previous_distance:
-                reward -= 0.3
+                reward += self.config.farther_penalty
+                self.no_progress_steps += 1
+            else:
+                self.no_progress_steps += 1
 
-            reward += 0.2 * (current_space_ratio - previous_space_ratio)
+            reward += self.config.space_delta_scale * (current_space_ratio - previous_space_ratio)
 
             head_key = (self.snake.head().x, self.snake.head().y)
             if head_key in self.recent_heads:
-                reward -= 0.2
+                reward += self.config.revisit_penalty
             self.recent_heads.append(head_key)
+
+            if (
+                self.config.no_progress_threshold > 0
+                and self.no_progress_steps >= self.config.no_progress_threshold
+            ):
+                reward += self.config.no_progress_penalty
 
             if self.steps_since_food >= self._max_steps_without_food():
                 truncated = True
-                reward -= 3.0
+                reward += self.config.starvation_penalty
 
         self.last_food_distance = self._food_distance() if self.snake_map.is_inside(self.snake.head()) else 0
         self.last_space_ratio = current_space_ratio
@@ -255,7 +294,7 @@ class SnakeEnv(gym.Env):
         random.seed(int(self.np_random.integers(0, 2**32 - 1)))
 
     def _max_steps_without_food(self) -> int:
-        return 40 + 8 * self.snake.len()
+        return self.config.starvation_base + self.config.starvation_scale * self.snake.len()
 
     def _reachable_region_features(self, start: Pos) -> tuple[float, float]:
         if not self.snake_map.is_inside(start):
