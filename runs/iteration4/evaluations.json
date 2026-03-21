@@ -1,0 +1,77 @@
+[
+  {
+    "timesteps": 5000,
+    "checkpoint_path": "runs/iteration4/checkpoints/step_5000.zip",
+    "metrics": {
+      "episodes": 20,
+      "avg_snake_length": 2.0,
+      "avg_steps": 44.0,
+      "avg_return": -12.768000602722168,
+      "median_snake_length": 2.0,
+      "median_steps": 44.0,
+      "max_snake_length": 2,
+      "min_steps": 44,
+      "score": 0.04545454680919647
+    }
+  },
+  {
+    "timesteps": 10000,
+    "checkpoint_path": "runs/iteration4/checkpoints/step_10000.zip",
+    "metrics": {
+      "episodes": 20,
+      "avg_snake_length": 23.649999618530273,
+      "avg_steps": 150.3000030517578,
+      "avg_return": 298.8505859375,
+      "median_snake_length": 25.0,
+      "median_steps": 155.0,
+      "max_snake_length": 34,
+      "min_steps": 32,
+      "score": 0.15735195577144623
+    }
+  },
+  {
+    "timesteps": 15000,
+    "checkpoint_path": "runs/iteration4/checkpoints/step_15000.zip",
+    "metrics": {
+      "episodes": 20,
+      "avg_snake_length": 20.299999237060547,
+      "avg_steps": 123.55000305175781,
+      "avg_return": 243.9609375,
+      "median_snake_length": 20.0,
+      "median_steps": 124.5,
+      "max_snake_length": 30,
+      "min_steps": 32,
+      "score": 0.1643059402704239
+    }
+  },
+  {
+    "timesteps": 20000,
+    "checkpoint_path": "runs/iteration4/checkpoints/step_20000.zip",
+    "metrics": {
+      "episodes": 20,
+      "avg_snake_length": 21.950000762939453,
+      "avg_steps": 131.89999389648438,
+      "avg_return": 272.1753845214844,
+      "median_snake_length": 22.0,
+      "median_steps": 134.5,
+      "max_snake_length": 34,
+      "min_steps": 32,
+      "score": 0.16641396284103394
+    }
+  },
+  {
+    "timesteps": 25000,
+    "checkpoint_path": "runs/iteration4/checkpoints/step_25000.zip",
+    "metrics": {
+      "episodes": 20,
+      "avg_snake_length": 22.600000381469727,
+      "avg_steps": 141.10000610351562,
+      "avg_return": 279.52117919921875,
+      "median_snake_length": 23.5,
+      "median_steps": 138.5,
+      "max_snake_length": 30,
+      "min_steps": 53,
+      "score": 0.16017009317874908
+    }
+  }
+]

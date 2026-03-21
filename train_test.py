@@ -42,6 +42,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--closer-reward", type=float, default=0.3)
     parser.add_argument("--farther-penalty", type=float, default=-0.3)
     parser.add_argument("--space-delta-scale", type=float, default=0.2)
+    parser.add_argument("--space-loss-scale", type=float, default=None)
+    parser.add_argument("--food-unreachable-penalty", type=float, default=0.0)
+    parser.add_argument("--safe-progress-bonus", type=float, default=0.0)
+    parser.add_argument("--safe-progress-margin", type=float, default=0.08)
     parser.add_argument("--revisit-penalty", type=float, default=-0.2)
     parser.add_argument("--starvation-base", type=int, default=40)
     parser.add_argument("--starvation-scale", type=int, default=8)
@@ -53,11 +57,18 @@ def parse_args() -> argparse.Namespace:
 
 
 def build_env_config(args: argparse.Namespace) -> SnakeEnvConfig:
+    space_loss_scale = args.space_loss_scale
+    if space_loss_scale is None:
+        space_loss_scale = args.space_delta_scale
+
     return SnakeEnvConfig(
         step_penalty=args.step_penalty,
         closer_reward=args.closer_reward,
         farther_penalty=args.farther_penalty,
-        space_delta_scale=args.space_delta_scale,
+        space_loss_scale=space_loss_scale,
+        food_unreachable_penalty=-abs(args.food_unreachable_penalty),
+        safe_progress_bonus=args.safe_progress_bonus,
+        safe_progress_margin=args.safe_progress_margin,
         revisit_penalty=args.revisit_penalty,
         starvation_base=args.starvation_base,
         starvation_scale=args.starvation_scale,

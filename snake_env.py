@@ -46,13 +46,24 @@ class SnakeEnvConfig:
     death_penalty: float = -10.0
     closer_reward: float = 0.3
     farther_penalty: float = -0.3
-    space_delta_scale: float = 0.2
+    space_loss_scale: float = 0.2
+    food_unreachable_penalty: float = -0.0
+    safe_progress_bonus: float = 0.0
+    safe_progress_margin: float = 0.08
     revisit_penalty: float = -0.2
     starvation_penalty: float = -3.0
     starvation_base: int = 40
     starvation_scale: int = 8
     no_progress_threshold: int = 0
     no_progress_penalty: float = -0.0
+
+
+@dataclass(frozen=True)
+class ActionAnalysis:
+    blocked: bool
+    next_food_distance: int
+    next_space_ratio: float
+    next_food_reachable: float
 
 
 class SnakeEnv(gym.Env):
@@ -152,21 +163,13 @@ class SnakeEnv(gym.Env):
 
         candidate_features = []
         max_food_dist = float(max(1, 2 * self.inner_size))
-        for action in RELATIVE_ACTIONS:
-            next_head = head.adj(self._resolve_action(action))
-            blocked = float(self._is_blocked(next_head))
-            if blocked:
-                candidate_features.extend([1.0, 1.0, 0.0, 0.0])
-                continue
-
-            next_food_distance = Pos.manhattan_dist(next_head, food) / max_food_dist
-            next_space_ratio, next_food_reachable = self._reachable_region_features(next_head)
+        for action_analysis in self._analyze_actions().values():
             candidate_features.extend(
                 [
-                    blocked,
-                    next_food_distance,
-                    next_space_ratio,
-                    next_food_reachable,
+                    float(action_analysis.blocked),
+                    action_analysis.next_food_distance / max_food_dist,
+                    action_analysis.next_space_ratio,
+                    action_analysis.next_food_reachable,
                 ]
             )
 
@@ -209,6 +212,12 @@ class SnakeEnv(gym.Env):
         return self._get_obs(), self._get_info()
 
     def step(self, action: int):
+        action_analyses = self._analyze_actions()
+        safe_actions = [analysis for analysis in action_analyses.values() if not analysis.blocked]
+        best_safe_space_ratio = max(
+            (analysis.next_space_ratio for analysis in safe_actions),
+            default=0.0,
+        )
         previous_distance = self.last_food_distance
         previous_space_ratio = self.last_space_ratio
         direction = self._resolve_action(int(action))
@@ -222,6 +231,7 @@ class SnakeEnv(gym.Env):
         truncated = False
         reward = self.config.step_penalty
         current_space_ratio = 0.0
+        current_food_reachable = 0.0
 
         if not terminated:
             if not self.snake_map.has_food():
@@ -232,7 +242,7 @@ class SnakeEnv(gym.Env):
                 terminated = True
                 reward += self.config.board_clear_bonus
             else:
-                current_space_ratio, _ = self._reachable_region_features(self.snake.head())
+                current_space_ratio, current_food_reachable = self._reachable_region_features(self.snake.head())
 
         got_food = self.snake.len() > len_before
         if got_food:
@@ -253,7 +263,20 @@ class SnakeEnv(gym.Env):
             else:
                 self.no_progress_steps += 1
 
-            reward += self.config.space_delta_scale * (current_space_ratio - previous_space_ratio)
+            reward += self.config.space_loss_scale * min(
+                0.0,
+                current_space_ratio - previous_space_ratio,
+            )
+
+            if current_food_reachable <= 0.0:
+                reward += self.config.food_unreachable_penalty
+
+            if (
+                current_distance < previous_distance
+                and current_food_reachable > 0.0
+                and current_space_ratio >= best_safe_space_ratio - self.config.safe_progress_margin
+            ):
+                reward += self.config.safe_progress_bonus
 
             head_key = (self.snake.head().x, self.snake.head().y)
             if head_key in self.recent_heads:
@@ -295,6 +318,34 @@ class SnakeEnv(gym.Env):
 
     def _max_steps_without_food(self) -> int:
         return self.config.starvation_base + self.config.starvation_scale * self.snake.len()
+
+    def _analyze_actions(self) -> dict[int, ActionAnalysis]:
+        head = self.snake.head()
+        food = self.snake.map.food
+        max_food_dist = max(1, 2 * self.inner_size)
+        analyses: dict[int, ActionAnalysis] = {}
+
+        for action in RELATIVE_ACTIONS:
+            next_head = head.adj(self._resolve_action(action))
+            blocked = self._is_blocked(next_head)
+            if blocked or food is None:
+                analyses[action] = ActionAnalysis(
+                    blocked=blocked,
+                    next_food_distance=max_food_dist,
+                    next_space_ratio=0.0,
+                    next_food_reachable=0.0,
+                )
+                continue
+
+            next_space_ratio, next_food_reachable = self._reachable_region_features(next_head)
+            analyses[action] = ActionAnalysis(
+                blocked=False,
+                next_food_distance=Pos.manhattan_dist(next_head, food),
+                next_space_ratio=next_space_ratio,
+                next_food_reachable=next_food_reachable,
+            )
+
+        return analyses
 
     def _reachable_region_features(self, start: Pos) -> tuple[float, float]:
         if not self.snake_map.is_inside(start):

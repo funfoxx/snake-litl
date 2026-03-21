@@ -1,0 +1,32 @@
+[
+  {
+    "timesteps": 5000,
+    "checkpoint_path": "runs/iter4_probe_b/checkpoints/step_5000.zip",
+    "metrics": {
+      "episodes": 20,
+      "avg_snake_length": 2.0,
+      "avg_steps": 40.0,
+      "avg_return": -10.0,
+      "median_snake_length": 2.0,
+      "median_steps": 40.0,
+      "max_snake_length": 2,
+      "min_steps": 40,
+      "score": 0.05000000074505806
+    }
+  },
+  {
+    "timesteps": 10000,
+    "checkpoint_path": "runs/iter4_probe_b/checkpoints/step_10000.zip",
+    "metrics": {
+      "episodes": 20,
+      "avg_snake_length": 23.149999618530273,
+      "avg_steps": 139.39999389648438,
+      "avg_return": 298.3426208496094,
+      "median_snake_length": 23.0,
+      "median_steps": 141.5,
+      "max_snake_length": 31,
+      "min_steps": 32,
+      "score": 0.16606886684894562
+    }
+  }
+]
