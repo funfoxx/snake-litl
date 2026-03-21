@@ -1,0 +1,22 @@
+{
+  "iteration": 1,
+  "seed": 7,
+  "timesteps": 20000,
+  "eval_freq": 5000,
+  "eval_episodes": 20,
+  "benchmark_episodes": 1000,
+  "training_time_seconds": 11.502957105636597,
+  "best_model_path": "runs/iteration1/best_model.zip",
+  "final_model_path": "runs/iteration1/final_model.zip",
+  "benchmark": {
+    "episodes": 1000,
+    "avg_snake_length": 20.232999801635742,
+    "avg_steps": 120.15299987792969,
+    "avg_return": 238.5831298828125,
+    "median_snake_length": 20.0,
+    "median_steps": 116.0,
+    "max_snake_length": 37,
+    "min_steps": 20,
+    "score": 0.16839362680912018
+  }
+}

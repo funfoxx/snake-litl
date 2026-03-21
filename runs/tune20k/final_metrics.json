@@ -1,0 +1,22 @@
+{
+  "iteration": 1,
+  "seed": 7,
+  "timesteps": 20000,
+  "eval_freq": 5000,
+  "eval_episodes": 10,
+  "benchmark_episodes": 200,
+  "training_time_seconds": 8.860185623168945,
+  "best_model_path": "runs/tune20k/best_model.zip",
+  "final_model_path": "runs/tune20k/final_model.zip",
+  "benchmark": {
+    "episodes": 200,
+    "avg_snake_length": 19.954999923706055,
+    "avg_steps": 117.0,
+    "avg_return": 234.31649780273438,
+    "median_snake_length": 20.0,
+    "median_steps": 114.0,
+    "max_snake_length": 37,
+    "min_steps": 20,
+    "score": 0.17055556178092957
+  }
+}
