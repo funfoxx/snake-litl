@@ -27,6 +27,9 @@ class RunConfig:
     total_timesteps: int = 70_000
     eval_freq: int = 5_000
     eval_episodes: int = 100
+    secondary_eval_episodes: int = 300
+    secondary_eval_seed_base: int = 20_000
+    top_k_checkpoints: int = 3
     benchmark_episodes: int = 1_000
     eval_seed_base: int = 10_000
     benchmark_seed_base: int = 0
@@ -60,6 +63,9 @@ def parse_args() -> RunConfig:
     parser.add_argument("--timesteps", type=int, default=70_000)
     parser.add_argument("--eval-freq", type=int, default=5_000)
     parser.add_argument("--eval-episodes", type=int, default=100)
+    parser.add_argument("--secondary-eval-episodes", type=int, default=300)
+    parser.add_argument("--secondary-eval-seed-base", type=int, default=20_000)
+    parser.add_argument("--top-k-checkpoints", type=int, default=3)
     parser.add_argument("--benchmark-episodes", type=int, default=1_000)
     parser.add_argument("--eval-seed-base", type=int, default=10_000)
     parser.add_argument("--benchmark-seed-base", type=int, default=0)
@@ -92,6 +98,9 @@ def parse_args() -> RunConfig:
         total_timesteps=args.timesteps,
         eval_freq=args.eval_freq,
         eval_episodes=args.eval_episodes,
+        secondary_eval_episodes=args.secondary_eval_episodes,
+        secondary_eval_seed_base=args.secondary_eval_seed_base,
+        top_k_checkpoints=max(1, args.top_k_checkpoints),
         benchmark_episodes=args.benchmark_episodes,
         eval_seed_base=args.eval_seed_base,
         benchmark_seed_base=args.benchmark_seed_base,
@@ -397,7 +406,9 @@ class DQNAgent:
             "config": asdict(config),
             "metadata": metadata,
         }
-        torch.save(payload, path)
+        tmp_path = path.with_suffix(f"{path.suffix}.tmp")
+        torch.save(payload, tmp_path)
+        tmp_path.replace(path)
 
     @classmethod
     def load(cls, path: Path, device: str = "cpu") -> "DQNAgent":
@@ -446,14 +457,53 @@ def evaluate_agent(
     }
 
 
+def update_top_candidates(
+    candidates: list[dict[str, object]],
+    artifact_dir: Path,
+    agent: DQNAgent,
+    config: RunConfig,
+    metrics: dict[str, float],
+) -> list[dict[str, object]]:
+    candidate_path = artifact_dir / f"candidate_t{int(metrics['timesteps'])}.zip"
+    agent.save(
+        candidate_path,
+        config=config,
+        metadata={
+            "primary_eval_score": float(metrics["score"]),
+            "primary_eval_timestep": int(metrics["timesteps"]),
+        },
+    )
+
+    candidates.append(
+        {
+            "path": candidate_path,
+            "timesteps": int(metrics["timesteps"]),
+            "primary_score": float(metrics["score"]),
+            "primary_avg_length": float(metrics["avg_length"]),
+            "primary_avg_steps": float(metrics["avg_steps"]),
+        }
+    )
+    candidates.sort(key=lambda item: float(item["primary_score"]), reverse=True)
+
+    while len(candidates) > config.top_k_checkpoints:
+        removed = candidates.pop()
+        Path(removed["path"]).unlink(missing_ok=True)
+
+    return candidates
+
+
 def train(config: RunConfig) -> dict[str, object]:
     artifact_dir = iteration_artifact_dir(config)
+    candidate_dir = artifact_dir / "candidates"
     best_model_path = artifact_dir / "best_model.zip"
     summary_path = artifact_dir / "summary.json"
     best_export_path = ROOT / "best" / f"iteration{config.iteration}.zip"
 
     artifact_dir.mkdir(parents=True, exist_ok=True)
+    candidate_dir.mkdir(parents=True, exist_ok=True)
     best_model_path.unlink(missing_ok=True)
+    for stale_candidate in candidate_dir.glob("*.zip"):
+        stale_candidate.unlink()
 
     set_global_seeds(config.seed)
     env = SnakeEnv()
@@ -470,9 +520,11 @@ def train(config: RunConfig) -> dict[str, object]:
     )
 
     evaluations: list[dict[str, float]] = []
+    secondary_evaluations: list[dict[str, float]] = []
     training_stats: list[dict[str, float]] = []
-    best_score = float("-inf")
-    best_timestep = 0
+    best_primary_score = float("-inf")
+    best_primary_timestep = 0
+    top_candidates: list[dict[str, object]] = []
 
     obs, _ = env.reset(seed=config.seed)
     exploration_steps = int(config.total_timesteps * config.exploration_fraction)
@@ -561,17 +613,17 @@ def train(config: RunConfig) -> dict[str, object]:
                 )
             evaluations.append(metrics)
 
-            if metrics["score"] > best_score:
-                best_score = metrics["score"]
-                best_timestep = int(timestep)
-                agent.save(
-                    best_model_path,
-                    config=config,
-                    metadata={
-                        "best_eval_score": best_score,
-                        "best_eval_timestep": best_timestep,
-                    },
-                )
+            if metrics["score"] > best_primary_score:
+                best_primary_score = metrics["score"]
+                best_primary_timestep = int(timestep)
+
+            top_candidates = update_top_candidates(
+                candidates=top_candidates,
+                artifact_dir=candidate_dir,
+                agent=agent,
+                config=config,
+                metrics=metrics,
+            )
 
             print(
                 "[eval] "
@@ -579,26 +631,53 @@ def train(config: RunConfig) -> dict[str, object]:
                 f"avg_len={metrics['avg_length']:.3f} "
                 f"avg_steps={metrics['avg_steps']:.3f} "
                 f"score={metrics['score']:.6f} "
-                f"best={best_score:.6f}"
+                f"best={best_primary_score:.6f}"
             )
 
-    if not best_model_path.exists():
-        best_timestep = config.total_timesteps
+    if not top_candidates:
         last_metrics = evaluate_agent(
             agent,
             eval_env,
             config.eval_episodes,
             base_seed=config.eval_seed_base,
         )
-        best_score = last_metrics["score"]
-        agent.save(
-            best_model_path,
+        last_metrics["timesteps"] = int(config.total_timesteps)
+        top_candidates = update_top_candidates(
+            candidates=top_candidates,
+            artifact_dir=candidate_dir,
+            agent=agent,
             config=config,
-            metadata={
-                "best_eval_score": best_score,
-                "best_eval_timestep": best_timestep,
-            },
+            metrics=last_metrics,
         )
+
+    selected_candidate = None
+    selected_secondary_score = float("-inf")
+    selected_secondary_avg_length = 0.0
+    selected_secondary_avg_steps = 0.0
+    secondary_env = SnakeEnv()
+
+    for candidate in top_candidates:
+        candidate_agent = DQNAgent.load(Path(candidate["path"]), device=config.device)
+        secondary_metrics = evaluate_agent(
+            candidate_agent,
+            secondary_env,
+            config.secondary_eval_episodes,
+            base_seed=config.secondary_eval_seed_base,
+        )
+        secondary_metrics["timesteps"] = int(candidate["timesteps"])
+        secondary_metrics["primary_score"] = float(candidate["primary_score"])
+        secondary_evaluations.append(secondary_metrics)
+
+        if secondary_metrics["score"] > selected_secondary_score:
+            selected_secondary_score = float(secondary_metrics["score"])
+            selected_secondary_avg_length = float(secondary_metrics["avg_length"])
+            selected_secondary_avg_steps = float(secondary_metrics["avg_steps"])
+            selected_candidate = candidate
+
+    if selected_candidate is None:
+        raise RuntimeError("no candidate checkpoint was available for selection")
+
+    shutil.copyfile(Path(selected_candidate["path"]), best_model_path)
 
     best_agent = DQNAgent.load(best_model_path, device=config.device)
     benchmark_env = SnakeEnv()
@@ -611,9 +690,15 @@ def train(config: RunConfig) -> dict[str, object]:
 
     summary = {
         "config": asdict(config),
-        "best_eval_score": best_score,
-        "best_eval_timestep": best_timestep,
+        "best_primary_eval_score": best_primary_score,
+        "best_primary_eval_timestep": best_primary_timestep,
         "evaluations": evaluations,
+        "secondary_evaluations": secondary_evaluations,
+        "selected_checkpoint_timestep": int(selected_candidate["timesteps"]),
+        "selected_checkpoint_primary_score": float(selected_candidate["primary_score"]),
+        "selected_checkpoint_secondary_score": selected_secondary_score,
+        "selected_checkpoint_secondary_avg_length": selected_secondary_avg_length,
+        "selected_checkpoint_secondary_avg_steps": selected_secondary_avg_steps,
         "benchmark": benchmark,
     }
     with summary_path.open("w", encoding="utf-8") as handle:
@@ -627,13 +712,15 @@ def train(config: RunConfig) -> dict[str, object]:
     print(f"avg snake length: {benchmark['avg_length']:.3f}")
     print(f"avg steps: {benchmark['avg_steps']:.3f}")
     print(f"score: {benchmark['score']:.9f}")
-    print(f"best eval timestep: {best_timestep}")
-    print(f"best eval score: {best_score:.9f}")
+    print(f"selected checkpoint timestep: {int(selected_candidate['timesteps'])}")
+    print(f"selected checkpoint primary score: {float(selected_candidate['primary_score']):.9f}")
+    print(f"selected checkpoint secondary score: {selected_secondary_score:.9f}")
     if config.export_best:
         print(f"exported model: {best_export_path}")
 
     env.close()
     eval_env.close()
+    secondary_env.close()
     benchmark_env.close()
 
     return summary
