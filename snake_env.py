@@ -3,6 +3,7 @@ import random
 import gymnasium as gym
 import numpy as np
 from snake.base import Direc, Map, Pos, Snake
+from snake.solver.greedy import GreedySolver
 
 
 RELATIVE_ACTIONS = {
@@ -49,7 +50,7 @@ class SnakeEnv(gym.Env):
         self.observation_space = gym.spaces.Box(
             low=-1.0,
             high=1.0,
-            shape=(16,),
+            shape=(277,),
             dtype=np.float32,
         )
         self.action_space = gym.spaces.Discrete(3)
@@ -80,13 +81,12 @@ class SnakeEnv(gym.Env):
             pos = pos.adj(direction)
         return distance / self.playable_size
 
-    def _food_vector(self):
-        food = self.snake_map.food
-        if food is None:
+    def _relative_vector(self, target):
+        if target is None:
             return 0.0, 0.0
         head = self.snake.head()
-        dx = food.x - head.x
-        dy = food.y - head.y
+        dx = target.x - head.x
+        dy = target.y - head.y
 
         if self.snake.direc == Direc.UP:
             forward = -dx
@@ -103,6 +103,12 @@ class SnakeEnv(gym.Env):
 
         return forward / self.max_food_distance, left / self.max_food_distance
 
+    def _food_vector(self):
+        return self._relative_vector(self.snake_map.food)
+
+    def _tail_vector(self):
+        return self._relative_vector(self.snake.tail())
+
     def _heading_one_hot(self):
         heading = np.zeros(4, dtype=np.float32)
         heading[HEADING_INDEX[self.snake.direc]] = 1.0
@@ -113,10 +119,58 @@ class SnakeEnv(gym.Env):
             return 0
         return Pos.manhattan_dist(self.snake.head(), self.snake_map.food)
 
+    def _board_features(self):
+        body = np.zeros((self.playable_size, self.playable_size), dtype=np.float32)
+        head = np.zeros((self.playable_size, self.playable_size), dtype=np.float32)
+        tail = np.zeros((self.playable_size, self.playable_size), dtype=np.float32)
+        food = np.zeros((self.playable_size, self.playable_size), dtype=np.float32)
+
+        for index, pos in enumerate(self.snake.bodies):
+            x = pos.x - 1
+            y = pos.y - 1
+            if not (0 <= x < self.playable_size and 0 <= y < self.playable_size):
+                continue
+            if index == 0:
+                head[x, y] = 1.0
+            elif index == self.snake.len() - 1:
+                tail[x, y] = 1.0
+            else:
+                body[x, y] = 1.0
+
+        if self.snake_map.food is not None:
+            food_pos = self.snake_map.food
+            x = food_pos.x - 1
+            y = food_pos.y - 1
+            if 0 <= x < self.playable_size and 0 <= y < self.playable_size:
+                food[x, y] = 1.0
+
+        return np.concatenate(
+            (
+                body.reshape(-1),
+                head.reshape(-1),
+                tail.reshape(-1),
+                food.reshape(-1),
+            )
+        )
+
+    def _greedy_hint(self):
+        hint = np.zeros(3, dtype=np.float32)
+        if self.snake.dead or self.snake_map.food is None:
+            return hint
+        direction = GreedySolver(self.snake).next_direc()
+        if direction == LEFT_OF[self.snake.direc]:
+            hint[0] = 1.0
+        elif direction == self.snake.direc:
+            hint[1] = 1.0
+        elif direction == RIGHT_OF[self.snake.direc]:
+            hint[2] = 1.0
+        return hint
+
     def _get_obs(self):
         left = LEFT_OF[self.snake.direc]
         right = RIGHT_OF[self.snake.direc]
         food_forward, food_left = self._food_vector()
+        tail_forward, tail_left = self._tail_vector()
         return np.array(
             [
                 self._danger(left),
@@ -127,11 +181,15 @@ class SnakeEnv(gym.Env):
                 self._clearance(right),
                 food_forward,
                 food_left,
+                tail_forward,
+                tail_left,
                 *self._heading_one_hot(),
                 self._food_distance() / self.max_food_distance,
                 self.snake.len() / self.capacity,
                 self.steps_since_food / self.max_idle_steps,
                 (self.capacity - self.snake.len()) / self.capacity,
+                *self._greedy_hint(),
+                *self._board_features(),
             ],
             dtype=np.float32,
         )

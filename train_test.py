@@ -22,14 +22,18 @@ from snake.solver.greedy import GreedySolver
 from snake_env import LEFT_OF, RIGHT_OF, SnakeEnv
 
 
-EVAL_DIR = ROOT / "eval" / "iteration2"
-BEST_MODEL_PATH = EVAL_DIR / "best_model.zip"
-BEST_MODEL_STEM = EVAL_DIR / "best_model"
-BEST_ITERATION_PATH = ROOT / "best" / "iteration2.zip"
-
-
 def make_env():
     return Monitor(SnakeEnv())
+
+
+def get_artifact_paths(run_name):
+    eval_dir = ROOT / "eval" / run_name
+    return {
+        "eval_dir": eval_dir,
+        "best_model_path": eval_dir / "best_model.zip",
+        "best_model_stem": eval_dir / "best_model",
+        "best_iteration_path": ROOT / "best" / f"{run_name}.zip",
+    }
 
 
 def absolute_to_relative_action(current_direction, next_direction):
@@ -200,6 +204,54 @@ def collect_expert_dataset(episodes, seed):
     )
 
 
+def collect_dagger_dataset(model, episodes, seed):
+    env = SnakeEnv()
+    observations = []
+    actions = []
+    lengths = []
+    steps = []
+    scores = []
+
+    print("collecting dagger relabels...")
+    for episode in range(episodes):
+        obs, info = env.reset(seed=seed + episode)
+        solver = GreedySolver(env.snake)
+        terminated = False
+        truncated = False
+
+        while not (terminated or truncated):
+            direction = solver.next_direc()
+            expert_action = absolute_to_relative_action(env.snake.direc, direction)
+            observations.append(obs.copy())
+            actions.append(expert_action)
+
+            action, _ = model.predict(obs, deterministic=True)
+            obs, _, terminated, truncated, info = env.step(action)
+            solver.snake = env.snake
+
+        lengths.append(info["snake_len"])
+        steps.append(info["steps"])
+        scores.append(info["score"])
+
+    env.close()
+
+    avg_length = float(np.mean(lengths))
+    avg_steps = float(np.mean(steps))
+    return (
+        np.asarray(observations, dtype=np.float32),
+        np.asarray(actions, dtype=np.int64),
+        {
+            "dagger_episodes": episodes,
+            "dagger_transitions": int(len(actions)),
+            "dagger_rollout_avg_snake_length": avg_length,
+            "dagger_rollout_avg_steps": avg_steps,
+            "dagger_rollout_score": float((avg_length**2) / avg_steps),
+            "dagger_rollout_avg_episode_score": float(np.mean(scores)),
+            "dagger_rollout_max_snake_length": int(np.max(lengths)),
+        },
+    )
+
+
 def _batched_logits(model, observations, batch_size):
     logits = []
     with th.no_grad():
@@ -227,6 +279,14 @@ def pretrain_policy(model, observations, actions, epochs, batch_size, seed):
     train_actions = actions[train_idx]
     val_obs = observations[val_idx]
     val_actions = actions[val_idx]
+    class_counts = np.bincount(train_actions, minlength=model.action_space.n)
+    class_weights = class_counts.sum() / np.clip(class_counts, 1, None)
+    class_weights = class_weights / class_weights.mean()
+    class_weights_tensor = th.as_tensor(
+        class_weights,
+        dtype=th.float32,
+        device=model.device,
+    )
 
     history = []
     print("behavior cloning pretraining...")
@@ -250,7 +310,7 @@ def pretrain_policy(model, observations, actions, epochs, batch_size, seed):
             )
 
             logits = model.policy.get_distribution(batch_obs).distribution.logits
-            loss = F.cross_entropy(logits, batch_actions)
+            loss = F.cross_entropy(logits, batch_actions, weight=class_weights_tensor)
 
             model.policy.optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -261,7 +321,11 @@ def pretrain_policy(model, observations, actions, epochs, batch_size, seed):
         model.policy.set_training_mode(False)
         val_logits = _batched_logits(model, val_obs, batch_size)
         val_actions_tensor = th.as_tensor(val_actions, dtype=th.long, device=model.device)
-        val_loss = F.cross_entropy(val_logits, val_actions_tensor).item()
+        val_loss = F.cross_entropy(
+            val_logits,
+            val_actions_tensor,
+            weight=class_weights_tensor,
+        ).item()
         val_acc = float((val_logits.argmax(dim=1) == val_actions_tensor).float().mean().item())
         train_loss = total_loss / len(train_actions)
         history.append(
@@ -270,6 +334,7 @@ def pretrain_policy(model, observations, actions, epochs, batch_size, seed):
                 "train_loss": float(train_loss),
                 "val_loss": float(val_loss),
                 "val_accuracy": val_acc,
+                "class_weights": class_weights.tolist(),
             }
         )
         print(
@@ -280,23 +345,88 @@ def pretrain_policy(model, observations, actions, epochs, batch_size, seed):
     return history[-1]
 
 
+def warmstart_policy_with_dagger(
+    model,
+    seed,
+    bc_episodes,
+    bc_epochs,
+    bc_batch_size,
+    dagger_rounds,
+    dagger_episodes,
+):
+    observations, actions, expert_stats = collect_expert_dataset(bc_episodes, seed + 10_000)
+    bc_stats = pretrain_policy(
+        model=model,
+        observations=observations,
+        actions=actions,
+        epochs=bc_epochs,
+        batch_size=bc_batch_size,
+        seed=seed,
+    )
+
+    dagger_history = []
+    aggregated_observations = observations
+    aggregated_actions = actions
+
+    effective_dagger_rounds = dagger_rounds if dagger_episodes > 0 else 0
+    for round_idx in range(1, effective_dagger_rounds + 1):
+        round_observations, round_actions, round_stats = collect_dagger_dataset(
+            model=model,
+            episodes=dagger_episodes,
+            seed=seed + 20_000 + (round_idx * 1_000),
+        )
+        aggregated_observations = np.concatenate((aggregated_observations, round_observations))
+        aggregated_actions = np.concatenate((aggregated_actions, round_actions))
+        bc_stats = pretrain_policy(
+            model=model,
+            observations=aggregated_observations,
+            actions=aggregated_actions,
+            epochs=bc_epochs,
+            batch_size=bc_batch_size,
+            seed=seed + round_idx,
+        )
+        dagger_history.append(
+            {
+                "round": round_idx,
+                "aggregate_transitions": int(len(aggregated_actions)),
+                **round_stats,
+                **{f"bc_{key}": value for key, value in bc_stats.items()},
+            }
+        )
+
+    return {
+        **expert_stats,
+        **{f"bc_{key}": value for key, value in bc_stats.items()},
+        "dagger_rounds_completed": effective_dagger_rounds,
+        "dagger_history": dagger_history,
+        "warmstart_transitions": int(len(aggregated_actions)),
+    }
+
+
 def train_model(
     total_timesteps,
     eval_freq,
     eval_episodes,
     seed,
+    run_name,
     bc_episodes,
     bc_epochs,
     bc_batch_size,
+    dagger_rounds,
+    dagger_episodes,
+    n_envs,
+    learning_rate,
+    n_steps,
+    batch_size,
+    n_epochs,
+    ent_coef,
 ):
-    EVAL_DIR.mkdir(parents=True, exist_ok=True)
-    expert_stats = {}
-    bc_stats = {}
+    artifact_paths = get_artifact_paths(run_name)
+    artifact_paths["eval_dir"].mkdir(parents=True, exist_ok=True)
     do_bc = bc_episodes > 0 and bc_epochs > 0
-    if do_bc:
-        observations, actions, expert_stats = collect_expert_dataset(bc_episodes, seed + 10_000)
+    warmstart_stats = {}
 
-    env = make_vec_env(make_env, n_envs=8, seed=seed)
+    env = make_vec_env(make_env, n_envs=n_envs, seed=seed)
     eval_env = SnakeEnv()
     callback_eval_freq = max(eval_freq // env.num_envs, 1)
 
@@ -305,27 +435,27 @@ def train_model(
         eval_freq=callback_eval_freq,
         eval_episodes=eval_episodes,
         eval_seed=seed + 100_000,
-        best_model_path=BEST_MODEL_STEM,
-        log_path=EVAL_DIR / "evaluations.npz",
+        best_model_path=artifact_paths["best_model_stem"],
+        log_path=artifact_paths["eval_dir"] / "evaluations.npz",
         verbose=1,
     )
 
     model = PPO(
         "MlpPolicy",
         env,
-        learning_rate=2.5e-4,
-        n_steps=512,
-        batch_size=1024,
-        n_epochs=8,
+        learning_rate=learning_rate,
+        n_steps=n_steps,
+        batch_size=batch_size,
+        n_epochs=n_epochs,
         gamma=0.99,
         gae_lambda=0.95,
         clip_range=0.2,
-        ent_coef=0.002,
+        ent_coef=ent_coef,
         vf_coef=0.5,
         max_grad_norm=0.5,
         policy_kwargs={
             "activation_fn": th.nn.ReLU,
-            "net_arch": [256, 256, 128],
+            "net_arch": [256, 256, 256],
         },
         verbose=1,
         seed=seed,
@@ -333,13 +463,14 @@ def train_model(
     )
 
     if do_bc:
-        bc_stats = pretrain_policy(
+        warmstart_stats = warmstart_policy_with_dagger(
             model=model,
-            observations=observations,
-            actions=actions,
-            epochs=bc_epochs,
-            batch_size=bc_batch_size,
             seed=seed,
+            bc_episodes=bc_episodes,
+            bc_epochs=bc_epochs,
+            bc_batch_size=bc_batch_size,
+            dagger_rounds=dagger_rounds,
+            dagger_episodes=dagger_episodes,
         )
         score_callback.evaluate_and_save(model, timestep=0, label="bc")
     else:
@@ -351,8 +482,8 @@ def train_model(
     eval_env.close()
     env.close()
     return {
-        **expert_stats,
-        **{f"bc_{key}": value for key, value in bc_stats.items()},
+        "run_name": run_name,
+        **warmstart_stats,
     }
 
 
@@ -364,8 +495,8 @@ def evaluate_model(model_path, episodes, seed):
     return metrics
 
 
-def read_best_eval_stats():
-    evaluations_path = EVAL_DIR / "evaluations.npz"
+def read_best_eval_stats(run_name):
+    evaluations_path = get_artifact_paths(run_name)["eval_dir"] / "evaluations.npz"
     if not evaluations_path.exists():
         return None
 
@@ -387,14 +518,23 @@ def read_best_eval_stats():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--timesteps", type=int, default=150_000)
+    parser.add_argument("--run-name", type=str, default="iteration3")
+    parser.add_argument("--timesteps", type=int, default=5_000)
     parser.add_argument("--eval-freq", type=int, default=5_000)
-    parser.add_argument("--eval-episodes", type=int, default=50)
+    parser.add_argument("--eval-episodes", type=int, default=200)
     parser.add_argument("--test-episodes", type=int, default=1_000)
     parser.add_argument("--seed", type=int, default=13)
-    parser.add_argument("--bc-episodes", type=int, default=0)
-    parser.add_argument("--bc-epochs", type=int, default=0)
+    parser.add_argument("--bc-episodes", type=int, default=200)
+    parser.add_argument("--bc-epochs", type=int, default=5)
     parser.add_argument("--bc-batch-size", type=int, default=2048)
+    parser.add_argument("--dagger-rounds", type=int, default=0)
+    parser.add_argument("--dagger-episodes", type=int, default=30)
+    parser.add_argument("--n-envs", type=int, default=8)
+    parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--n-steps", type=int, default=512)
+    parser.add_argument("--batch-size", type=int, default=1024)
+    parser.add_argument("--n-epochs", type=int, default=8)
+    parser.add_argument("--ent-coef", type=float, default=5e-4)
     args = parser.parse_args()
 
     train_stats = train_model(
@@ -402,21 +542,31 @@ def main():
         eval_freq=args.eval_freq,
         eval_episodes=args.eval_episodes,
         seed=args.seed,
+        run_name=args.run_name,
         bc_episodes=args.bc_episodes,
         bc_epochs=args.bc_epochs,
         bc_batch_size=args.bc_batch_size,
+        dagger_rounds=args.dagger_rounds,
+        dagger_episodes=args.dagger_episodes,
+        n_envs=args.n_envs,
+        learning_rate=args.learning_rate,
+        n_steps=args.n_steps,
+        batch_size=args.batch_size,
+        n_epochs=args.n_epochs,
+        ent_coef=args.ent_coef,
     )
 
-    if not BEST_MODEL_PATH.exists():
-        raise FileNotFoundError(f"Best model not found at {BEST_MODEL_PATH}")
+    artifact_paths = get_artifact_paths(args.run_name)
+    if not artifact_paths["best_model_path"].exists():
+        raise FileNotFoundError(f"Best model not found at {artifact_paths['best_model_path']}")
 
-    metrics = evaluate_model(BEST_MODEL_PATH, args.test_episodes, args.seed)
-    best_stats = read_best_eval_stats()
+    metrics = evaluate_model(artifact_paths["best_model_path"], args.test_episodes, args.seed)
+    best_stats = read_best_eval_stats(args.run_name)
     if best_stats is not None:
         metrics.update(best_stats)
     metrics.update(train_stats)
 
-    shutil.copyfile(BEST_MODEL_PATH, BEST_ITERATION_PATH)
+    shutil.copyfile(artifact_paths["best_model_path"], artifact_paths["best_iteration_path"])
 
     print()
     print("test results:")
