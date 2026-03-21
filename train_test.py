@@ -36,7 +36,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--seed", type=int, default=7)
     parser.add_argument("--run-dir", type=Path, default=None)
     parser.add_argument("--learning-rate", type=float, default=1e-4)
+    parser.add_argument("--learning-rate-end", type=float, default=None)
     parser.add_argument("--exploration-fraction", type=float, default=0.25)
+    parser.add_argument("--exploration-final-eps", type=float, default=0.02)
+    parser.add_argument("--target-update-interval", type=int, default=2_000)
     parser.add_argument("--verbose", type=int, default=0)
     parser.add_argument("--step-penalty", type=float, default=-0.02)
     parser.add_argument("--closer-reward", type=float, default=0.3)
@@ -85,27 +88,43 @@ def make_env(seed: int, env_config: SnakeEnvConfig) -> Monitor:
     return env
 
 
+def make_learning_rate_schedule(
+    initial_value: float,
+    final_value: float | None,
+):
+    if final_value is None or np.isclose(initial_value, final_value):
+        return initial_value
+
+    def schedule(progress_remaining: float) -> float:
+        return float(final_value + (initial_value - final_value) * progress_remaining)
+
+    return schedule
+
+
 def build_model(
     env: Monitor,
     seed: int,
     learning_rate: float,
+    learning_rate_end: float | None,
     exploration_fraction: float,
+    exploration_final_eps: float,
+    target_update_interval: int,
     verbose: int,
 ) -> DQN:
     return DQN(
         "MlpPolicy",
         env,
-        learning_rate=learning_rate,
+        learning_rate=make_learning_rate_schedule(learning_rate, learning_rate_end),
         buffer_size=100_000,
         learning_starts=5_000,
         batch_size=256,
         gamma=0.99,
         train_freq=4,
         gradient_steps=1,
-        target_update_interval=2_000,
+        target_update_interval=target_update_interval,
         exploration_fraction=exploration_fraction,
         exploration_initial_eps=1.0,
-        exploration_final_eps=0.02,
+        exploration_final_eps=exploration_final_eps,
         max_grad_norm=10.0,
         policy_kwargs={"net_arch": [256, 256, 256, 128]},
         verbose=verbose,
@@ -296,7 +315,10 @@ def main() -> None:
         env,
         args.seed,
         learning_rate=args.learning_rate,
+        learning_rate_end=args.learning_rate_end,
         exploration_fraction=args.exploration_fraction,
+        exploration_final_eps=args.exploration_final_eps,
+        target_update_interval=args.target_update_interval,
         verbose=args.verbose,
     )
 
@@ -343,7 +365,10 @@ def main() -> None:
         "selection_episodes": args.selection_episodes,
         "benchmark_episodes": args.benchmark_episodes,
         "learning_rate": args.learning_rate,
+        "learning_rate_end": args.learning_rate_end,
         "exploration_fraction": args.exploration_fraction,
+        "exploration_final_eps": args.exploration_final_eps,
+        "target_update_interval": args.target_update_interval,
         "env_config": dataclasses.asdict(env_config),
         "checkpoint_selection_rule": [
             "higher score",
