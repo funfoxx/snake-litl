@@ -1,0 +1,125 @@
+{
+  "config": {
+    "size": 10,
+    "train_steps": 1,
+    "eval_freq": 2000,
+    "eval_episodes": 40,
+    "benchmark_episodes": 200,
+    "seed": 7,
+    "skip_imitation": false,
+    "imitation_episodes": 160,
+    "imitation_epochs": 10,
+    "imitation_batch_size": 256,
+    "imitation_lr": 0.001
+  },
+  "expert_summary": {
+    "episodes": 160,
+    "transitions": 117112,
+    "avg_teacher_length": 59.5625,
+    "avg_teacher_steps": 731.95,
+    "max_teacher_length": 64,
+    "terminal_events": {
+      "full": 56,
+      "death": 88,
+      "stall": 16
+    },
+    "action_counts": {
+      "0": 25098,
+      "1": 66286,
+      "2": 25728
+    }
+  },
+  "imitation": {
+    "epochs": 10,
+    "batch_size": 256,
+    "learning_rate": 0.001,
+    "class_weights": [
+      1.2743479855220128,
+      0.4825089119969749,
+      1.243143102481012
+    ],
+    "history": [
+      {
+        "epoch": 1,
+        "loss": 0.3052265808702036,
+        "accuracy": 0.8583230986605566
+      },
+      {
+        "epoch": 2,
+        "loss": 0.1608703929817052,
+        "accuracy": 0.9300661844457602
+      },
+      {
+        "epoch": 3,
+        "loss": 0.1250532178379042,
+        "accuracy": 0.9466970296145527
+      },
+      {
+        "epoch": 4,
+        "loss": 0.10094267455657627,
+        "accuracy": 0.9582525927687316
+      },
+      {
+        "epoch": 5,
+        "loss": 0.0781950036625024,
+        "accuracy": 0.9678732259565045
+      },
+      {
+        "epoch": 6,
+        "loss": 0.06001514599833426,
+        "accuracy": 0.9749107304879151
+      },
+      {
+        "epoch": 7,
+        "loss": 0.04466630447062147,
+        "accuracy": 0.9815763737436985
+      },
+      {
+        "epoch": 8,
+        "loss": 0.0350211099121622,
+        "accuracy": 0.9857339428241596
+      },
+      {
+        "epoch": 9,
+        "loss": 0.024279458136663785,
+        "accuracy": 0.9901320278384279
+      },
+      {
+        "epoch": 10,
+        "loss": 0.022690612047007837,
+        "accuracy": 0.9910156250520564
+      }
+    ],
+    "final_loss": 0.022690612047007837,
+    "final_accuracy": 0.9910156250520564
+  },
+  "best_eval_selection_score": 28249.25,
+  "eval_history": [
+    {
+      "avg_snake_length": 28.45,
+      "avg_steps": 200.75,
+      "avg_reward": 42.332499999999875,
+      "max_snake_length": 41,
+      "median_snake_length": 28.0,
+      "score": 4.031892901618929,
+      "selection_score": 28249.25,
+      "terminal_events": {
+        "death": 40
+      },
+      "timesteps": 0,
+      "label": "post_imitation"
+    }
+  ],
+  "benchmark": {
+    "avg_snake_length": 28.375,
+    "avg_steps": 215.745,
+    "avg_reward": 42.09604999999988,
+    "max_snake_length": 60,
+    "median_snake_length": 27.5,
+    "score": 3.7319086189714707,
+    "selection_score": 28159.255,
+    "terminal_events": {
+      "death": 200
+    }
+  }
+}
