@@ -70,14 +70,15 @@ def direction_to_relative_action(heading, next_direction):
     raise ValueError(f"Teacher proposed invalid turn: {heading} -> {next_direction}")
 
 
-def evaluate_model(model, env, episodes):
+def evaluate_model(model, env, episodes, base_seed=None):
     snake_lengths = []
     step_counts = []
     rewards = []
     events = {}
 
-    for _ in range(episodes):
-        obs, _ = env.reset()
+    for episode_idx in range(episodes):
+        reset_seed = None if base_seed is None else int(base_seed + episode_idx)
+        obs, _ = env.reset(seed=reset_seed)
         done = False
         episode_reward = 0.0
         info = {}
@@ -165,6 +166,7 @@ def collect_expert_dataset(size, episodes, seed):
         "board": np.stack(boards).astype(np.uint8),
         "features": np.stack(features).astype(np.float32),
         "actions": np.asarray(actions, dtype=np.int64),
+        "sample_weights": np.ones(len(actions), dtype=np.float32),
         "next_board": np.stack(next_boards).astype(np.uint8),
         "next_features": np.stack(next_features).astype(np.float32),
         "replay_actions": np.asarray(replay_actions, dtype=np.int64),
@@ -184,13 +186,22 @@ def collect_expert_dataset(size, episodes, seed):
     }
 
 
-def collect_dagger_dataset(size, episodes, seed, model, teacher_beta):
+def collect_dagger_dataset(
+    size,
+    episodes,
+    seed,
+    model,
+    teacher_beta,
+    teacher_sample_weight,
+    student_sample_weight,
+):
     env = make_env(size)
     rng = np.random.default_rng(seed)
 
     boards = []
     features = []
     actions = []
+    sample_weights = []
     next_boards = []
     next_features = []
     replay_actions = []
@@ -226,10 +237,12 @@ def collect_dagger_dataset(size, episodes, seed, model, teacher_beta):
                 if use_teacher:
                     action = teacher_action
                     control_source_counts["teacher"] += 1
+                    sample_weights.append(float(teacher_sample_weight))
                 else:
                     action, _ = model.predict(obs, deterministic=True)
                     action = int(action)
                     control_source_counts["student"] += 1
+                    sample_weights.append(float(student_sample_weight))
 
                 control_action_counts[int(action)] += 1
                 next_obs, reward, terminated, truncated, info = env.step(action)
@@ -255,6 +268,7 @@ def collect_dagger_dataset(size, episodes, seed, model, teacher_beta):
         "board": np.stack(boards).astype(np.uint8),
         "features": np.stack(features).astype(np.float32),
         "actions": np.asarray(actions, dtype=np.int64),
+        "sample_weights": np.asarray(sample_weights, dtype=np.float32),
         "next_board": np.stack(next_boards).astype(np.uint8),
         "next_features": np.stack(next_features).astype(np.float32),
         "replay_actions": np.asarray(replay_actions, dtype=np.int64),
@@ -289,6 +303,10 @@ def merge_datasets(left, right):
         "board": np.concatenate([left["board"], right["board"]], axis=0),
         "features": np.concatenate([left["features"], right["features"]], axis=0),
         "actions": np.concatenate([left["actions"], right["actions"]], axis=0),
+        "sample_weights": np.concatenate(
+            [left["sample_weights"], right["sample_weights"]],
+            axis=0,
+        ),
         "next_board": np.concatenate([left["next_board"], right["next_board"]], axis=0),
         "next_features": np.concatenate(
             [left["next_features"], right["next_features"]],
@@ -314,6 +332,8 @@ def pretrain_from_expert(
     epochs,
     batch_size,
     learning_rate,
+    callback=None,
+    stage_label=None,
 ):
     optimizer = th.optim.Adam(model.policy.q_net.parameters(), lr=learning_rate)
     device = model.device
@@ -339,9 +359,21 @@ def pretrain_from_expert(
                 "features": th.as_tensor(dataset["features"][batch_idx], device=device),
             }
             labels = th.as_tensor(dataset["actions"][batch_idx], device=device)
+            sample_weights = th.as_tensor(
+                dataset["sample_weights"][batch_idx],
+                dtype=th.float32,
+                device=device,
+            )
 
             logits = model.policy.q_net(obs)
-            loss = F.cross_entropy(logits, labels, weight=class_weights_tensor)
+            per_sample_loss = F.cross_entropy(
+                logits,
+                labels,
+                weight=class_weights_tensor,
+                reduction="none",
+            )
+            normalized_weights = sample_weights / sample_weights.mean().clamp_min(1e-8)
+            loss = (per_sample_loss * normalized_weights).mean()
 
             optimizer.zero_grad(set_to_none=True)
             loss.backward()
@@ -356,6 +388,11 @@ def pretrain_from_expert(
             "loss": float(np.mean(losses)),
             "accuracy": float(np.mean(accuracies)),
         }
+        if callback is not None and stage_label is not None:
+            epoch_stats["eval"] = callback.evaluate_now(
+                label=f"{stage_label}_epoch_{epoch + 1}",
+                timesteps=0,
+            )
         epoch_history.append(epoch_stats)
         print("imitation", json.dumps(epoch_stats))
 
@@ -374,18 +411,32 @@ def pretrain_from_expert(
 
 
 class BenchmarkCallback(BaseCallback):
-    def __init__(self, eval_env, eval_freq, eval_episodes, best_model_path, verbose=1):
+    def __init__(
+        self,
+        eval_env,
+        eval_freq,
+        eval_episodes,
+        best_model_path,
+        eval_seed,
+        verbose=1,
+    ):
         super().__init__(verbose)
         self.eval_env = eval_env
         self.eval_freq = eval_freq
         self.eval_episodes = eval_episodes
         self.best_model_path = Path(best_model_path)
+        self.eval_seed = eval_seed
         self.best_model_path.parent.mkdir(parents=True, exist_ok=True)
         self.best_score = float("-inf")
         self.history = []
 
     def evaluate_now(self, label, timesteps):
-        metrics = evaluate_model(self.model, self.eval_env, self.eval_episodes)
+        metrics = evaluate_model(
+            self.model,
+            self.eval_env,
+            self.eval_episodes,
+            base_seed=self.eval_seed,
+        )
         metrics["timesteps"] = int(timesteps)
         metrics["label"] = label
         self.history.append(metrics)
@@ -505,6 +556,8 @@ def parse_args():
     parser.add_argument("--eval-episodes", type=int, default=40)
     parser.add_argument("--benchmark-episodes", type=int, default=1_000)
     parser.add_argument("--seed", type=int, default=7)
+    parser.add_argument("--eval-seed", type=int, default=None)
+    parser.add_argument("--benchmark-seed", type=int, default=None)
     parser.add_argument("--output-dir", type=Path, default=Path("artifacts/latest_run"))
     parser.add_argument("--imitation-episodes", type=int, default=120)
     parser.add_argument("--imitation-epochs", type=int, default=8)
@@ -516,6 +569,10 @@ def parse_args():
     parser.add_argument("--dagger-beta-end", type=float, default=0.2)
     parser.add_argument("--dagger-epochs", type=int, default=3)
     parser.add_argument("--dagger-lr", type=float, default=5e-4)
+    parser.add_argument("--expert-sample-weight", type=float, default=1.0)
+    parser.add_argument("--dagger-teacher-sample-weight", type=float, default=1.0)
+    parser.add_argument("--dagger-student-sample-weight", type=float, default=1.0)
+    parser.add_argument("--eval-every-epoch", action="store_true")
     parser.add_argument("--prefill-replay", action="store_true")
     parser.add_argument("--skip-imitation", action="store_true")
     return parser.parse_args()
@@ -531,6 +588,14 @@ def interpolation_value(start, end, index, total):
 def main():
     args = parse_args()
     args.output_dir.mkdir(parents=True, exist_ok=True)
+    eval_seed = args.eval_seed if args.eval_seed is not None else (args.seed + 100_000)
+    benchmark_seed = (
+        args.benchmark_seed if args.benchmark_seed is not None else (args.seed + 200_000)
+    )
+    if eval_seed is not None and eval_seed < 0:
+        eval_seed = None
+    if benchmark_seed is not None and benchmark_seed < 0:
+        benchmark_seed = None
 
     env = make_env(args.size)
     eval_env = make_env(args.size)
@@ -540,6 +605,7 @@ def main():
         eval_freq=args.eval_freq,
         eval_episodes=args.eval_episodes,
         best_model_path=args.output_dir / "best_model",
+        eval_seed=eval_seed,
         verbose=1,
     )
 
@@ -557,6 +623,7 @@ def main():
             episodes=args.imitation_episodes,
             seed=args.seed,
         )
+        expert_dataset["sample_weights"].fill(float(args.expert_sample_weight))
         expert_summary = expert_dataset["summary"]
         print("expert", json.dumps(expert_summary))
 
@@ -567,6 +634,8 @@ def main():
             epochs=args.imitation_epochs,
             batch_size=args.imitation_batch_size,
             learning_rate=args.imitation_lr,
+            callback=callback if args.eval_every_epoch else None,
+            stage_label="post_imitation" if args.eval_every_epoch else None,
         )
         callback.evaluate_now(label="post_imitation", timesteps=0)
 
@@ -587,6 +656,8 @@ def main():
                 seed=args.seed + (round_number * 10_000),
                 model=model,
                 teacher_beta=teacher_beta,
+                teacher_sample_weight=args.dagger_teacher_sample_weight,
+                student_sample_weight=args.dagger_student_sample_weight,
             )
             print("dagger", json.dumps({"round": round_number, **dagger_dataset["summary"]}))
 
@@ -597,6 +668,8 @@ def main():
                 epochs=args.dagger_epochs,
                 batch_size=args.imitation_batch_size,
                 learning_rate=args.dagger_lr,
+                callback=callback if args.eval_every_epoch else None,
+                stage_label=f"dagger_round_{round_number}" if args.eval_every_epoch else None,
             )
             eval_metrics = callback.evaluate_now(
                 label=f"dagger_round_{round_number}",
@@ -627,7 +700,12 @@ def main():
 
     best_model = DQN.load(best_model_zip)
     benchmark_env = make_env(args.size)
-    benchmark = evaluate_model(best_model, benchmark_env, args.benchmark_episodes)
+    benchmark = evaluate_model(
+        best_model,
+        benchmark_env,
+        args.benchmark_episodes,
+        base_seed=benchmark_seed,
+    )
 
     results = {
         "config": {
@@ -637,6 +715,8 @@ def main():
             "eval_episodes": args.eval_episodes,
             "benchmark_episodes": args.benchmark_episodes,
             "seed": args.seed,
+            "eval_seed": eval_seed,
+            "benchmark_seed": benchmark_seed,
             "skip_imitation": args.skip_imitation,
             "imitation_episodes": args.imitation_episodes,
             "imitation_epochs": args.imitation_epochs,
@@ -648,6 +728,10 @@ def main():
             "dagger_beta_end": args.dagger_beta_end,
             "dagger_epochs": args.dagger_epochs,
             "dagger_lr": args.dagger_lr,
+            "expert_sample_weight": args.expert_sample_weight,
+            "dagger_teacher_sample_weight": args.dagger_teacher_sample_weight,
+            "dagger_student_sample_weight": args.dagger_student_sample_weight,
+            "eval_every_epoch": args.eval_every_epoch,
             "prefill_replay": args.prefill_replay,
         },
         "expert_summary": expert_summary,

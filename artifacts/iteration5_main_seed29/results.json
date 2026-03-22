@@ -1,0 +1,309 @@
+{
+  "config": {
+    "size": 10,
+    "train_steps": 1,
+    "eval_freq": 2000,
+    "eval_episodes": 40,
+    "benchmark_episodes": 1000,
+    "seed": 29,
+    "eval_seed": null,
+    "benchmark_seed": null,
+    "skip_imitation": false,
+    "imitation_episodes": 160,
+    "imitation_epochs": 10,
+    "imitation_batch_size": 256,
+    "imitation_lr": 0.001,
+    "dagger_rounds": 2,
+    "dagger_episodes": 30,
+    "dagger_beta_start": 0.7,
+    "dagger_beta_end": 0.2,
+    "dagger_epochs": 2,
+    "dagger_lr": 0.0005,
+    "expert_sample_weight": 1.0,
+    "dagger_teacher_sample_weight": 1.0,
+    "dagger_student_sample_weight": 1.0,
+    "eval_every_epoch": false,
+    "prefill_replay": false
+  },
+  "expert_summary": {
+    "episodes": 160,
+    "transitions": 118098,
+    "avg_teacher_length": 59.61875,
+    "avg_teacher_steps": 738.1125,
+    "max_teacher_length": 64,
+    "terminal_events": {
+      "full": 49,
+      "death": 95,
+      "stall": 16
+    },
+    "action_counts": {
+      "0": 25585,
+      "1": 66912,
+      "2": 25601
+    }
+  },
+  "imitation": {
+    "epochs": 10,
+    "batch_size": 256,
+    "learning_rate": 0.001,
+    "class_weights": [
+      1.2595817905696483,
+      0.48162362672950215,
+      1.2587945827008495
+    ],
+    "history": [
+      {
+        "epoch": 1,
+        "loss": 0.2426419330849534,
+        "accuracy": 0.8651659093893967
+      },
+      {
+        "epoch": 2,
+        "loss": 0.12902166777455704,
+        "accuracy": 0.9320138861864676
+      },
+      {
+        "epoch": 3,
+        "loss": 0.10279605419927346,
+        "accuracy": 0.9461718254533165
+      },
+      {
+        "epoch": 4,
+        "loss": 0.08130902329306582,
+        "accuracy": 0.9575820680046494
+      },
+      {
+        "epoch": 5,
+        "loss": 0.06492727286146059,
+        "accuracy": 0.9662780213407623
+      },
+      {
+        "epoch": 6,
+        "loss": 0.0486492061669015,
+        "accuracy": 0.9749211821205173
+      },
+      {
+        "epoch": 7,
+        "loss": 0.03656672840752514,
+        "accuracy": 0.9814241747835498
+      },
+      {
+        "epoch": 8,
+        "loss": 0.027735095917654436,
+        "accuracy": 0.9856591420772272
+      },
+      {
+        "epoch": 9,
+        "loss": 0.021179230153979937,
+        "accuracy": 0.9895146615577467
+      },
+      {
+        "epoch": 10,
+        "loss": 0.019292658896415266,
+        "accuracy": 0.990419355821816
+      }
+    ],
+    "final_loss": 0.019292658896415266,
+    "final_accuracy": 0.990419355821816
+  },
+  "aggregation_rounds": [
+    {
+      "round": 1,
+      "combined_transitions": 128254,
+      "rollout": {
+        "episodes": 30,
+        "transitions": 10156,
+        "teacher_beta": 0.7,
+        "avg_rollout_length": 40.333333333333336,
+        "avg_rollout_steps": 338.53333333333336,
+        "max_rollout_length": 64,
+        "teacher_control_rate": 0.7040173296573454,
+        "terminal_events": {
+          "death": 29,
+          "full": 1
+        },
+        "label_action_counts": {
+          "0": 1991,
+          "1": 6345,
+          "2": 1820
+        },
+        "control_action_counts": {
+          "0": 2010,
+          "1": 6349,
+          "2": 1797
+        },
+        "control_source_counts": {
+          "teacher": 7150,
+          "student": 3006
+        }
+      },
+      "train": {
+        "epochs": 2,
+        "batch_size": 256,
+        "learning_rate": 0.0005,
+        "class_weights": [
+          1.2594031271254067,
+          0.4740748410883631,
+          1.26652203178623
+        ],
+        "history": [
+          {
+            "epoch": 1,
+            "loss": 0.02687368623005178,
+            "accuracy": 0.9906981681397338
+          },
+          {
+            "epoch": 2,
+            "loss": 0.01318431603015882,
+            "accuracy": 0.995407560866274
+          }
+        ],
+        "final_loss": 0.01318431603015882,
+        "final_accuracy": 0.995407560866274
+      },
+      "eval": {
+        "avg_snake_length": 29.575,
+        "avg_steps": 225.325,
+        "avg_reward": 43.95299999999987,
+        "max_snake_length": 64,
+        "median_snake_length": 31.0,
+        "score": 3.8818623099966714,
+        "selection_score": 29349.675,
+        "terminal_events": {
+          "death": 39,
+          "full": 1
+        },
+        "timesteps": 0,
+        "label": "dagger_round_1"
+      }
+    },
+    {
+      "round": 2,
+      "combined_transitions": 135979,
+      "rollout": {
+        "episodes": 30,
+        "transitions": 7725,
+        "teacher_beta": 0.2,
+        "avg_rollout_length": 30.966666666666665,
+        "avg_rollout_steps": 257.5,
+        "max_rollout_length": 62,
+        "teacher_control_rate": 0.1997411003236246,
+        "terminal_events": {
+          "death": 30
+        },
+        "label_action_counts": {
+          "0": 1466,
+          "1": 4829,
+          "2": 1430
+        },
+        "control_action_counts": {
+          "0": 1516,
+          "1": 4808,
+          "2": 1401
+        },
+        "control_source_counts": {
+          "teacher": 1543,
+          "student": 6182
+        }
+      },
+      "train": {
+        "epochs": 2,
+        "batch_size": 256,
+        "learning_rate": 0.0005,
+        "class_weights": [
+          1.261276078671477,
+          0.4690979161024643,
+          1.269626005226059
+        ],
+        "history": [
+          {
+            "epoch": 1,
+            "loss": 0.025531251152191327,
+            "accuracy": 0.9924521742010475
+          },
+          {
+            "epoch": 2,
+            "loss": 0.014028216173208872,
+            "accuracy": 0.9954773151784911
+          }
+        ],
+        "final_loss": 0.014028216173208872,
+        "final_accuracy": 0.9954773151784911
+      },
+      "eval": {
+        "avg_snake_length": 30.525,
+        "avg_steps": 229.375,
+        "avg_reward": 45.62624999999987,
+        "max_snake_length": 58,
+        "median_snake_length": 30.0,
+        "score": 4.062237057220708,
+        "selection_score": 30295.625,
+        "terminal_events": {
+          "death": 40
+        },
+        "timesteps": 0,
+        "label": "dagger_round_2"
+      }
+    }
+  ],
+  "replay_prefill": null,
+  "best_eval_selection_score": 30295.625,
+  "eval_history": [
+    {
+      "avg_snake_length": 27.675,
+      "avg_steps": 203.175,
+      "avg_reward": 40.885749999999874,
+      "max_snake_length": 48,
+      "median_snake_length": 28.0,
+      "score": 3.7696843853820594,
+      "selection_score": 27471.825,
+      "terminal_events": {
+        "death": 40
+      },
+      "timesteps": 0,
+      "label": "post_imitation"
+    },
+    {
+      "avg_snake_length": 29.575,
+      "avg_steps": 225.325,
+      "avg_reward": 43.95299999999987,
+      "max_snake_length": 64,
+      "median_snake_length": 31.0,
+      "score": 3.8818623099966714,
+      "selection_score": 29349.675,
+      "terminal_events": {
+        "death": 39,
+        "full": 1
+      },
+      "timesteps": 0,
+      "label": "dagger_round_1"
+    },
+    {
+      "avg_snake_length": 30.525,
+      "avg_steps": 229.375,
+      "avg_reward": 45.62624999999987,
+      "max_snake_length": 58,
+      "median_snake_length": 30.0,
+      "score": 4.062237057220708,
+      "selection_score": 30295.625,
+      "terminal_events": {
+        "death": 40
+      },
+      "timesteps": 0,
+      "label": "dagger_round_2"
+    }
+  ],
+  "benchmark": {
+    "avg_snake_length": 29.563,
+    "avg_steps": 231.996,
+    "avg_reward": 43.925189999999866,
+    "max_snake_length": 64,
+    "median_snake_length": 29.0,
+    "score": 3.7671811970896045,
+    "selection_score": 29331.004,
+    "terminal_events": {
+      "death": 998,
+      "full": 2
+    }
+  }
+}
