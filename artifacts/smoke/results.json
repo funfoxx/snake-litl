@@ -1,0 +1,72 @@
+{
+  "config": {
+    "size": 10,
+    "train_steps": 2000,
+    "eval_freq": 500,
+    "eval_episodes": 10,
+    "benchmark_episodes": 25,
+    "seed": 7
+  },
+  "best_eval_score": 0.8888888888888888,
+  "eval_history": [
+    {
+      "avg_snake_length": 2.0,
+      "avg_steps": 4.5,
+      "avg_reward": -1.2100000000000002,
+      "max_snake_length": 2,
+      "median_snake_length": 2.0,
+      "score": 0.8888888888888888,
+      "terminal_events": {
+        "death": 10
+      },
+      "timesteps": 500
+    },
+    {
+      "avg_snake_length": 2.1,
+      "avg_steps": 5.3,
+      "avg_reward": -0.943,
+      "max_snake_length": 3,
+      "median_snake_length": 2.0,
+      "score": 0.8320754716981132,
+      "terminal_events": {
+        "death": 10
+      },
+      "timesteps": 1000
+    },
+    {
+      "avg_snake_length": 2.0,
+      "avg_steps": 5.2,
+      "avg_reward": -1.102,
+      "max_snake_length": 2,
+      "median_snake_length": 2.0,
+      "score": 0.7692307692307692,
+      "terminal_events": {
+        "death": 10
+      },
+      "timesteps": 1500
+    },
+    {
+      "avg_snake_length": 2.0,
+      "avg_steps": 5.7,
+      "avg_reward": -1.112,
+      "max_snake_length": 2,
+      "median_snake_length": 2.0,
+      "score": 0.7017543859649122,
+      "terminal_events": {
+        "death": 10
+      },
+      "timesteps": 2000
+    }
+  ],
+  "benchmark": {
+    "avg_snake_length": 2.0,
+    "avg_steps": 4.48,
+    "avg_reward": -1.1348,
+    "max_snake_length": 2,
+    "median_snake_length": 2.0,
+    "score": 0.8928571428571428,
+    "terminal_events": {
+      "death": 25
+    }
+  }
+}
