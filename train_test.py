@@ -18,14 +18,24 @@ from stable_baselines3.common.callbacks import BaseCallback
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.monitor import Monitor
 
-from snake.solver.greedy import GreedySolver
 from snake_env import LEFT_OF, RIGHT_OF, SnakeEnv
+from teacher import TeacherSolver
 
 GREEDY_HINT_START = 18
 
 
-def make_env(fixed_start=True):
-    return Monitor(SnakeEnv(fixed_start=fixed_start))
+def make_env(
+    fixed_start=True,
+    teacher_mode="greedy",
+    teacher_aggressive_food_len=12,
+):
+    return Monitor(
+        SnakeEnv(
+            fixed_start=fixed_start,
+            teacher_mode=teacher_mode,
+            teacher_aggressive_food_len=teacher_aggressive_food_len,
+        )
+    )
 
 
 def get_artifact_paths(run_name):
@@ -159,18 +169,32 @@ class ScoreEvalCallback(BaseCallback):
         return True
 
 
-def collect_expert_dataset(episodes, seed, fixed_start):
-    env = SnakeEnv(fixed_start=fixed_start)
+def collect_expert_dataset(
+    episodes,
+    seed,
+    fixed_start,
+    teacher_mode,
+    teacher_aggressive_food_len,
+):
+    env = SnakeEnv(
+        fixed_start=fixed_start,
+        teacher_mode=teacher_mode,
+        teacher_aggressive_food_len=teacher_aggressive_food_len,
+    )
     observations = []
     actions = []
     lengths = []
     steps = []
     scores = []
 
-    print("collecting greedy demonstrations...")
+    print("collecting teacher demonstrations...")
     for episode in range(episodes):
         obs, info = env.reset(seed=seed + episode)
-        solver = GreedySolver(env.snake)
+        solver = TeacherSolver(
+            env.snake,
+            mode=teacher_mode,
+            aggressive_food_len=teacher_aggressive_food_len,
+        )
         terminated = False
         truncated = False
 
@@ -206,8 +230,19 @@ def collect_expert_dataset(episodes, seed, fixed_start):
     )
 
 
-def collect_dagger_dataset(model, episodes, seed, fixed_start):
-    env = SnakeEnv(fixed_start=fixed_start)
+def collect_dagger_dataset(
+    model,
+    episodes,
+    seed,
+    fixed_start,
+    teacher_mode,
+    teacher_aggressive_food_len,
+):
+    env = SnakeEnv(
+        fixed_start=fixed_start,
+        teacher_mode=teacher_mode,
+        teacher_aggressive_food_len=teacher_aggressive_food_len,
+    )
     observations = []
     actions = []
     lengths = []
@@ -217,7 +252,11 @@ def collect_dagger_dataset(model, episodes, seed, fixed_start):
     print("collecting dagger relabels...")
     for episode in range(episodes):
         obs, info = env.reset(seed=seed + episode)
-        solver = GreedySolver(env.snake)
+        solver = TeacherSolver(
+            env.snake,
+            mode=teacher_mode,
+            aggressive_food_len=teacher_aggressive_food_len,
+        )
         terminated = False
         truncated = False
 
@@ -382,11 +421,15 @@ def warmstart_policy_with_dagger(
     dagger_rounds,
     dagger_episodes,
     fixed_start,
+    teacher_mode,
+    teacher_aggressive_food_len,
 ):
     observations, actions, expert_stats = collect_expert_dataset(
         bc_episodes,
         seed + 10_000,
         fixed_start=fixed_start,
+        teacher_mode=teacher_mode,
+        teacher_aggressive_food_len=teacher_aggressive_food_len,
     )
     bc_stats = pretrain_policy(
         model=model,
@@ -408,6 +451,8 @@ def warmstart_policy_with_dagger(
             episodes=dagger_episodes,
             seed=seed + 20_000 + (round_idx * 1_000),
             fixed_start=fixed_start,
+            teacher_mode=teacher_mode,
+            teacher_aggressive_food_len=teacher_aggressive_food_len,
         )
         aggregated_observations = np.concatenate((aggregated_observations, round_observations))
         aggregated_actions = np.concatenate((aggregated_actions, round_actions))
@@ -456,14 +501,28 @@ def train_model(
     ent_coef,
     fixed_start,
     exact_hint_init,
+    teacher_mode,
+    teacher_aggressive_food_len,
 ):
     artifact_paths = get_artifact_paths(run_name)
     artifact_paths["eval_dir"].mkdir(parents=True, exist_ok=True)
     do_bc = bc_episodes > 0 and bc_epochs > 0
     warmstart_stats = {}
 
-    env = make_vec_env(lambda: make_env(fixed_start=fixed_start), n_envs=n_envs, seed=seed)
-    eval_env = SnakeEnv(fixed_start=fixed_start)
+    env = make_vec_env(
+        lambda: make_env(
+            fixed_start=fixed_start,
+            teacher_mode=teacher_mode,
+            teacher_aggressive_food_len=teacher_aggressive_food_len,
+        ),
+        n_envs=n_envs,
+        seed=seed,
+    )
+    eval_env = SnakeEnv(
+        fixed_start=fixed_start,
+        teacher_mode=teacher_mode,
+        teacher_aggressive_food_len=teacher_aggressive_food_len,
+    )
     callback_eval_freq = max(eval_freq // env.num_envs, 1)
 
     score_callback = ScoreEvalCallback(
@@ -500,7 +559,11 @@ def train_model(
 
     if exact_hint_init:
         initialize_policy_from_greedy_hint(model)
-        warmstart_stats = {"warmstart_mode": "exact_greedy_hint"}
+        warmstart_stats = {
+            "warmstart_mode": f"exact_{teacher_mode}_hint",
+            "teacher_mode": teacher_mode,
+            "teacher_aggressive_food_len": teacher_aggressive_food_len,
+        }
         score_callback.evaluate_and_save(model, timestep=0, label="hint")
     elif do_bc:
         warmstart_stats = warmstart_policy_with_dagger(
@@ -512,9 +575,15 @@ def train_model(
             dagger_rounds=dagger_rounds,
             dagger_episodes=dagger_episodes,
             fixed_start=fixed_start,
+            teacher_mode=teacher_mode,
+            teacher_aggressive_food_len=teacher_aggressive_food_len,
         )
         score_callback.evaluate_and_save(model, timestep=0, label="bc")
     else:
+        warmstart_stats = {
+            "teacher_mode": teacher_mode,
+            "teacher_aggressive_food_len": teacher_aggressive_food_len,
+        }
         score_callback.evaluate_and_save(model, timestep=0, label="init")
 
     print("ppo fine-tuning...")
@@ -528,9 +597,20 @@ def train_model(
     }
 
 
-def evaluate_model(model_path, episodes, seed, fixed_start=True):
+def evaluate_model(
+    model_path,
+    episodes,
+    seed,
+    fixed_start=True,
+    teacher_mode="greedy",
+    teacher_aggressive_food_len=12,
+):
     model = PPO.load(model_path)
-    env = SnakeEnv(fixed_start=fixed_start)
+    env = SnakeEnv(
+        fixed_start=fixed_start,
+        teacher_mode=teacher_mode,
+        teacher_aggressive_food_len=teacher_aggressive_food_len,
+    )
     metrics = run_policy_episodes(model=model, env=env, episodes=episodes, seed=seed)
     env.close()
     return metrics
@@ -559,7 +639,7 @@ def read_best_eval_stats(run_name):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--run-name", type=str, default="iteration4")
+    parser.add_argument("--run-name", type=str, default="iteration5")
     parser.add_argument("--timesteps", type=int, default=5_000)
     parser.add_argument("--eval-freq", type=int, default=5_000)
     parser.add_argument("--eval-episodes", type=int, default=200)
@@ -576,6 +656,12 @@ def main():
     parser.add_argument("--batch-size", type=int, default=1024)
     parser.add_argument("--n-epochs", type=int, default=8)
     parser.add_argument("--ent-coef", type=float, default=5e-4)
+    parser.add_argument(
+        "--teacher-mode",
+        choices=("greedy", "aggressive_food"),
+        default="greedy",
+    )
+    parser.add_argument("--teacher-aggressive-food-len", type=int, default=12)
     parser.add_argument("--random-start", action="store_true")
     parser.add_argument("--exact-hint-init", action="store_true")
     args = parser.parse_args()
@@ -599,6 +685,8 @@ def main():
         ent_coef=args.ent_coef,
         fixed_start=not args.random_start,
         exact_hint_init=args.exact_hint_init,
+        teacher_mode=args.teacher_mode,
+        teacher_aggressive_food_len=args.teacher_aggressive_food_len,
     )
 
     artifact_paths = get_artifact_paths(args.run_name)
@@ -610,6 +698,8 @@ def main():
         args.test_episodes,
         args.seed,
         fixed_start=not args.random_start,
+        teacher_mode=args.teacher_mode,
+        teacher_aggressive_food_len=args.teacher_aggressive_food_len,
     )
     best_stats = read_best_eval_stats(args.run_name)
     if best_stats is not None:

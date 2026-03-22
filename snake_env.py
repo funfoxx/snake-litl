@@ -3,7 +3,8 @@ import random
 import gymnasium as gym
 import numpy as np
 from snake.base import Direc, Map, PointType, Pos, Snake
-from snake.solver.greedy import GreedySolver
+
+from teacher import TeacherSolver
 
 
 RELATIVE_ACTIONS = {
@@ -58,6 +59,8 @@ class SnakeEnv(gym.Env):
         max_idle_steps=None,
         max_episode_steps=None,
         fixed_start=True,
+        teacher_mode="greedy",
+        teacher_aggressive_food_len=12,
     ):
         super().__init__()
         self.size = size
@@ -68,6 +71,8 @@ class SnakeEnv(gym.Env):
         self.max_idle_steps = max_idle_steps or max(40, 2 * self.capacity)
         self.max_episode_steps = max_episode_steps or (12 * self.capacity)
         self.fixed_start = fixed_start
+        self.teacher_mode = teacher_mode
+        self.teacher_aggressive_food_len = teacher_aggressive_food_len
 
         self.observation_space = gym.spaces.Box(
             low=-1.0,
@@ -185,11 +190,15 @@ class SnakeEnv(gym.Env):
             )
         )
 
-    def _greedy_hint(self):
+    def _teacher_hint(self):
         hint = np.zeros(3, dtype=np.float32)
         if self.snake.dead or self.snake_map.food is None:
             return hint
-        direction = GreedySolver(self.snake).next_direc()
+        direction = TeacherSolver(
+            self.snake,
+            mode=self.teacher_mode,
+            aggressive_food_len=self.teacher_aggressive_food_len,
+        ).next_direc()
         if direction == LEFT_OF[self.snake.direc]:
             hint[0] = 1.0
         elif direction == self.snake.direc:
@@ -220,7 +229,7 @@ class SnakeEnv(gym.Env):
                 self.snake.len() / self.capacity,
                 self.steps_since_food / self.max_idle_steps,
                 (self.capacity - self.snake.len()) / self.capacity,
-                *self._greedy_hint(),
+                *self._teacher_hint(),
                 *self._board_features(),
             ],
             dtype=np.float32,
