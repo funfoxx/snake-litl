@@ -14,7 +14,9 @@ Model architecture, rewards, hyperparameters, training code, evaluation code, et
 
 ## History
 
-Read the Markdown files in `history/` to see what previous iterations did and their results. Use that context to make changes that increase the score: (avg length)^2 / avg steps.
+Read the Markdown files in `history/` to see what previous iterations did and their results. 
+
+Use that context to make changes that increase the average length of the snake as much as possible while decreasing the average steps as much as possible.
 
 Each iteration produce two files in `history/`:
 
