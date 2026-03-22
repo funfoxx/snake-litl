@@ -1,0 +1,326 @@
+{
+  "config": {
+    "size": 10,
+    "train_steps": 1500,
+    "eval_freq": 500,
+    "eval_episodes": 20,
+    "benchmark_episodes": 100,
+    "seed": 7,
+    "skip_imitation": false,
+    "imitation_episodes": 80,
+    "imitation_epochs": 6,
+    "imitation_batch_size": 256,
+    "imitation_lr": 0.001,
+    "dagger_rounds": 2,
+    "dagger_episodes": 20,
+    "dagger_beta_start": 0.7,
+    "dagger_beta_end": 0.2,
+    "dagger_epochs": 2,
+    "dagger_lr": 0.0005,
+    "prefill_replay": true
+  },
+  "expert_summary": {
+    "episodes": 80,
+    "transitions": 55188,
+    "avg_teacher_length": 58.775,
+    "avg_teacher_steps": 689.85,
+    "max_teacher_length": 64,
+    "terminal_events": {
+      "full": 26,
+      "death": 48,
+      "stall": 6
+    },
+    "action_counts": {
+      "0": 11972,
+      "1": 31140,
+      "2": 12076
+    }
+  },
+  "imitation": {
+    "epochs": 6,
+    "batch_size": 256,
+    "learning_rate": 0.001,
+    "class_weights": [
+      1.2627085478365796,
+      0.4854575059312631,
+      1.2518339462321573
+    ],
+    "history": [
+      {
+        "epoch": 1,
+        "loss": 0.4219354608406623,
+        "accuracy": 0.8019049322163617
+      },
+      {
+        "epoch": 2,
+        "loss": 0.21812619489652138,
+        "accuracy": 0.8985636027322875
+      },
+      {
+        "epoch": 3,
+        "loss": 0.16683977224898558,
+        "accuracy": 0.9275119845513944
+      },
+      {
+        "epoch": 4,
+        "loss": 0.13927494534463794,
+        "accuracy": 0.9404062264495425
+      },
+      {
+        "epoch": 5,
+        "loss": 0.10883146251931235,
+        "accuracy": 0.9539319594149236
+      },
+      {
+        "epoch": 6,
+        "loss": 0.08502939550413026,
+        "accuracy": 0.9629644293476034
+      }
+    ],
+    "final_loss": 0.08502939550413026,
+    "final_accuracy": 0.9629644293476034
+  },
+  "aggregation_rounds": [
+    {
+      "round": 1,
+      "combined_transitions": 62280,
+      "rollout": {
+        "episodes": 20,
+        "transitions": 7092,
+        "teacher_beta": 0.7,
+        "avg_rollout_length": 39.4,
+        "avg_rollout_steps": 354.6,
+        "max_rollout_length": 64,
+        "teacher_control_rate": 0.6995205865764241,
+        "terminal_events": {
+          "death": 19,
+          "full": 1
+        },
+        "label_action_counts": {
+          "0": 1273,
+          "1": 4291,
+          "2": 1528
+        },
+        "control_action_counts": {
+          "0": 1286,
+          "1": 4264,
+          "2": 1542
+        },
+        "control_source_counts": {
+          "student": 2131,
+          "teacher": 4961
+        }
+      },
+      "train": {
+        "epochs": 2,
+        "batch_size": 256,
+        "learning_rate": 0.0005,
+        "class_weights": [
+          1.2779901765814863,
+          0.4777449095092373,
+          1.2442649139092758
+        ],
+        "history": [
+          {
+            "epoch": 1,
+            "loss": 0.07506896483666095,
+            "accuracy": 0.9723591899774113
+          },
+          {
+            "epoch": 2,
+            "loss": 0.0492753681314529,
+            "accuracy": 0.9820678932744948
+          }
+        ],
+        "final_loss": 0.0492753681314529,
+        "final_accuracy": 0.9820678932744948
+      },
+      "eval": {
+        "avg_snake_length": 30.15,
+        "avg_steps": 227.3,
+        "avg_reward": 44.95449999999987,
+        "max_snake_length": 54,
+        "median_snake_length": 29.5,
+        "score": 3.9992190937087546,
+        "selection_score": 29922.7,
+        "terminal_events": {
+          "death": 20
+        },
+        "timesteps": 0,
+        "label": "dagger_round_1"
+      }
+    },
+    {
+      "round": 2,
+      "combined_transitions": 67311,
+      "rollout": {
+        "episodes": 20,
+        "transitions": 5031,
+        "teacher_beta": 0.2,
+        "avg_rollout_length": 30.95,
+        "avg_rollout_steps": 251.55,
+        "max_rollout_length": 45,
+        "teacher_control_rate": 0.20333929636255219,
+        "terminal_events": {
+          "death": 20
+        },
+        "label_action_counts": {
+          "0": 897,
+          "1": 3110,
+          "2": 1024
+        },
+        "control_action_counts": {
+          "0": 855,
+          "1": 3192,
+          "2": 984
+        },
+        "control_source_counts": {
+          "student": 4008,
+          "teacher": 1023
+        }
+      },
+      "train": {
+        "epochs": 2,
+        "batch_size": 256,
+        "learning_rate": 0.0005,
+        "class_weights": [
+          1.2855067899669106,
+          0.4716960386007641,
+          1.242797171432325
+        ],
+        "history": [
+          {
+            "epoch": 1,
+            "loss": 0.06262799330452322,
+            "accuracy": 0.9805515272535752
+          },
+          {
+            "epoch": 2,
+            "loss": 0.041806228133095535,
+            "accuracy": 0.9858984854284801
+          }
+        ],
+        "final_loss": 0.041806228133095535,
+        "final_accuracy": 0.9858984854284801
+      },
+      "eval": {
+        "avg_snake_length": 24.65,
+        "avg_steps": 163.5,
+        "avg_reward": 36.2874999999999,
+        "max_snake_length": 41,
+        "median_snake_length": 26.0,
+        "score": 3.716345565749235,
+        "selection_score": 24486.5,
+        "terminal_events": {
+          "death": 20
+        },
+        "timesteps": 0,
+        "label": "dagger_round_2"
+      }
+    }
+  ],
+  "replay_prefill": {
+    "transitions": 67311,
+    "timeouts": 6,
+    "terminal_dones": 114
+  },
+  "best_eval_selection_score": 29922.7,
+  "eval_history": [
+    {
+      "avg_snake_length": 27.05,
+      "avg_steps": 185.4,
+      "avg_reward": 40.03849999999989,
+      "max_snake_length": 34,
+      "median_snake_length": 28.0,
+      "score": 3.9466154261057174,
+      "selection_score": 26864.6,
+      "terminal_events": {
+        "death": 20
+      },
+      "timesteps": 0,
+      "label": "post_imitation"
+    },
+    {
+      "avg_snake_length": 30.15,
+      "avg_steps": 227.3,
+      "avg_reward": 44.95449999999987,
+      "max_snake_length": 54,
+      "median_snake_length": 29.5,
+      "score": 3.9992190937087546,
+      "selection_score": 29922.7,
+      "terminal_events": {
+        "death": 20
+      },
+      "timesteps": 0,
+      "label": "dagger_round_1"
+    },
+    {
+      "avg_snake_length": 24.65,
+      "avg_steps": 163.5,
+      "avg_reward": 36.2874999999999,
+      "max_snake_length": 41,
+      "median_snake_length": 26.0,
+      "score": 3.716345565749235,
+      "selection_score": 24486.5,
+      "terminal_events": {
+        "death": 20
+      },
+      "timesteps": 0,
+      "label": "dagger_round_2"
+    },
+    {
+      "avg_snake_length": 25.15,
+      "avg_steps": 169.0,
+      "avg_reward": 36.93749999999991,
+      "max_snake_length": 37,
+      "median_snake_length": 25.0,
+      "score": 3.7427366863905323,
+      "selection_score": 24981.0,
+      "terminal_events": {
+        "death": 20
+      },
+      "timesteps": 500,
+      "label": "rl_eval"
+    },
+    {
+      "avg_snake_length": 24.35,
+      "avg_steps": 173.2,
+      "avg_reward": 35.59049999999992,
+      "max_snake_length": 54,
+      "median_snake_length": 23.5,
+      "score": 3.4233400692840648,
+      "selection_score": 24176.8,
+      "terminal_events": {
+        "death": 20
+      },
+      "timesteps": 1000,
+      "label": "rl_eval"
+    },
+    {
+      "avg_snake_length": 22.7,
+      "avg_steps": 152.4,
+      "avg_reward": 32.98599999999992,
+      "max_snake_length": 33,
+      "median_snake_length": 21.5,
+      "score": 3.3811679790026243,
+      "selection_score": 22547.6,
+      "terminal_events": {
+        "death": 20
+      },
+      "timesteps": 1500,
+      "label": "rl_eval"
+    }
+  ],
+  "benchmark": {
+    "avg_snake_length": 28.21,
+    "avg_steps": 204.07,
+    "avg_reward": 41.99329999999987,
+    "max_snake_length": 47,
+    "median_snake_length": 28.0,
+    "score": 3.8996623707551334,
+    "selection_score": 28005.93,
+    "terminal_events": {
+      "death": 100
+    }
+  }
+}

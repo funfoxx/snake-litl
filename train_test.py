@@ -115,6 +115,13 @@ def collect_expert_dataset(size, episodes, seed):
     boards = []
     features = []
     actions = []
+    next_boards = []
+    next_features = []
+    replay_actions = []
+    rewards = []
+    dones = []
+    timeouts = []
+    teacher_controls = []
     episode_lengths = []
     episode_steps = []
     terminal_events = Counter()
@@ -137,7 +144,15 @@ def collect_expert_dataset(size, episodes, seed):
                 actions.append(action)
                 action_counts[action] += 1
 
-                obs, _, terminated, truncated, info = env.step(action)
+                next_obs, reward, terminated, truncated, info = env.step(action)
+                next_boards.append(next_obs["board"].copy())
+                next_features.append(next_obs["features"].copy())
+                replay_actions.append(action)
+                rewards.append(reward)
+                dones.append(terminated or truncated)
+                timeouts.append(truncated)
+                teacher_controls.append(True)
+                obs = next_obs
                 done = terminated or truncated
 
             episode_lengths.append(info["snake_len"])
@@ -147,9 +162,16 @@ def collect_expert_dataset(size, episodes, seed):
         env.close()
 
     return {
-        "board": np.stack(boards).astype(np.float32),
+        "board": np.stack(boards).astype(np.uint8),
         "features": np.stack(features).astype(np.float32),
         "actions": np.asarray(actions, dtype=np.int64),
+        "next_board": np.stack(next_boards).astype(np.uint8),
+        "next_features": np.stack(next_features).astype(np.float32),
+        "replay_actions": np.asarray(replay_actions, dtype=np.int64),
+        "rewards": np.asarray(rewards, dtype=np.float32),
+        "dones": np.asarray(dones, dtype=np.bool_),
+        "timeouts": np.asarray(timeouts, dtype=np.bool_),
+        "teacher_controls": np.asarray(teacher_controls, dtype=np.bool_),
         "summary": {
             "episodes": episodes,
             "transitions": int(len(actions)),
@@ -169,6 +191,13 @@ def collect_dagger_dataset(size, episodes, seed, model, teacher_beta):
     boards = []
     features = []
     actions = []
+    next_boards = []
+    next_features = []
+    replay_actions = []
+    rewards = []
+    dones = []
+    timeouts = []
+    teacher_controls = []
     episode_lengths = []
     episode_steps = []
     terminal_events = Counter()
@@ -203,7 +232,15 @@ def collect_dagger_dataset(size, episodes, seed, model, teacher_beta):
                     control_source_counts["student"] += 1
 
                 control_action_counts[int(action)] += 1
-                obs, _, terminated, truncated, info = env.step(action)
+                next_obs, reward, terminated, truncated, info = env.step(action)
+                next_boards.append(next_obs["board"].copy())
+                next_features.append(next_obs["features"].copy())
+                replay_actions.append(action)
+                rewards.append(reward)
+                dones.append(terminated or truncated)
+                timeouts.append(truncated)
+                teacher_controls.append(use_teacher)
+                obs = next_obs
                 done = terminated or truncated
 
             episode_lengths.append(info["snake_len"])
@@ -215,9 +252,16 @@ def collect_dagger_dataset(size, episodes, seed, model, teacher_beta):
     total_control_steps = control_source_counts["teacher"] + control_source_counts["student"]
 
     return {
-        "board": np.stack(boards).astype(np.float32),
+        "board": np.stack(boards).astype(np.uint8),
         "features": np.stack(features).astype(np.float32),
         "actions": np.asarray(actions, dtype=np.int64),
+        "next_board": np.stack(next_boards).astype(np.uint8),
+        "next_features": np.stack(next_features).astype(np.float32),
+        "replay_actions": np.asarray(replay_actions, dtype=np.int64),
+        "rewards": np.asarray(rewards, dtype=np.float32),
+        "dones": np.asarray(dones, dtype=np.bool_),
+        "timeouts": np.asarray(timeouts, dtype=np.bool_),
+        "teacher_controls": np.asarray(teacher_controls, dtype=np.bool_),
         "summary": {
             "episodes": episodes,
             "transitions": int(len(actions)),
@@ -245,6 +289,22 @@ def merge_datasets(left, right):
         "board": np.concatenate([left["board"], right["board"]], axis=0),
         "features": np.concatenate([left["features"], right["features"]], axis=0),
         "actions": np.concatenate([left["actions"], right["actions"]], axis=0),
+        "next_board": np.concatenate([left["next_board"], right["next_board"]], axis=0),
+        "next_features": np.concatenate(
+            [left["next_features"], right["next_features"]],
+            axis=0,
+        ),
+        "replay_actions": np.concatenate(
+            [left["replay_actions"], right["replay_actions"]],
+            axis=0,
+        ),
+        "rewards": np.concatenate([left["rewards"], right["rewards"]], axis=0),
+        "dones": np.concatenate([left["dones"], right["dones"]], axis=0),
+        "timeouts": np.concatenate([left["timeouts"], right["timeouts"]], axis=0),
+        "teacher_controls": np.concatenate(
+            [left["teacher_controls"], right["teacher_controls"]],
+            axis=0,
+        ),
     }
 
 
@@ -275,7 +335,7 @@ def pretrain_from_expert(
         for start in range(0, num_samples, batch_size):
             batch_idx = indices[start : start + batch_size]
             obs = {
-                "board": th.as_tensor(dataset["board"][batch_idx], device=device),
+                "board": th.as_tensor(dataset["board"][batch_idx], device=device).float(),
                 "features": th.as_tensor(dataset["features"][batch_idx], device=device),
             }
             labels = th.as_tensor(dataset["actions"][batch_idx], device=device)
@@ -361,6 +421,37 @@ class BenchmarkCallback(BaseCallback):
         return True
 
 
+def prefill_replay_buffer(model, dataset):
+    teacher_indices = np.flatnonzero(dataset["teacher_controls"])
+    transitions = int(teacher_indices.shape[0])
+    for idx in teacher_indices:
+        obs = {
+            "board": dataset["board"][idx : idx + 1].astype(np.float32),
+            "features": dataset["features"][idx : idx + 1].astype(np.float32),
+        }
+        next_obs = {
+            "board": dataset["next_board"][idx : idx + 1].astype(np.float32),
+            "features": dataset["next_features"][idx : idx + 1].astype(np.float32),
+        }
+        action = np.asarray([[dataset["replay_actions"][idx]]], dtype=np.int64)
+        reward = np.asarray([dataset["rewards"][idx]], dtype=np.float32)
+        done = np.asarray([dataset["dones"][idx]], dtype=np.float32)
+        infos = [{"TimeLimit.truncated": bool(dataset["timeouts"][idx])}]
+        model.replay_buffer.add(obs, next_obs, action, reward, done, infos)
+
+    return {
+        "transitions": transitions,
+        "teacher_control_transitions": transitions,
+        "timeouts": int(dataset["timeouts"][teacher_indices].sum()),
+        "terminal_dones": int(
+            np.logical_and(
+                dataset["dones"][teacher_indices],
+                ~dataset["timeouts"][teacher_indices],
+            ).sum()
+        ),
+    }
+
+
 def build_model(env, seed, warm_start=False):
     policy_kwargs = {
         "features_extractor_class": EgocentricExtractor,
@@ -375,11 +466,11 @@ def build_model(env, seed, warm_start=False):
     exploration_final_eps = 0.02
 
     if warm_start:
-        learning_rate = 1e-4
+        learning_rate = 5e-5
         learning_starts = 0
-        exploration_fraction = 0.10
-        exploration_initial_eps = 0.05
-        exploration_final_eps = 0.005
+        exploration_fraction = 0.05
+        exploration_initial_eps = 0.01
+        exploration_final_eps = 0.001
 
     return DQN(
         policy="MultiInputPolicy",
@@ -425,6 +516,7 @@ def parse_args():
     parser.add_argument("--dagger-beta-end", type=float, default=0.2)
     parser.add_argument("--dagger-epochs", type=int, default=3)
     parser.add_argument("--dagger-lr", type=float, default=5e-4)
+    parser.add_argument("--prefill-replay", action="store_true")
     parser.add_argument("--skip-imitation", action="store_true")
     return parser.parse_args()
 
@@ -457,6 +549,7 @@ def main():
     imitation_results = None
     expert_summary = None
     aggregation_results = []
+    replay_prefill = None
     if not args.skip_imitation:
         print("collecting expert demonstrations...")
         expert_dataset = collect_expert_dataset(
@@ -519,6 +612,11 @@ def main():
                 }
             )
 
+        if args.prefill_replay:
+            print("prefilling replay buffer...")
+            replay_prefill = prefill_replay_buffer(model, aggregated_dataset)
+            print("replay_prefill", json.dumps(replay_prefill))
+
     if args.train_steps > 0:
         print("train start...")
         model.learn(total_timesteps=args.train_steps, callback=callback, progress_bar=False)
@@ -550,10 +648,12 @@ def main():
             "dagger_beta_end": args.dagger_beta_end,
             "dagger_epochs": args.dagger_epochs,
             "dagger_lr": args.dagger_lr,
+            "prefill_replay": args.prefill_replay,
         },
         "expert_summary": expert_summary,
         "imitation": imitation_results,
         "aggregation_rounds": aggregation_results,
+        "replay_prefill": replay_prefill,
         "best_eval_selection_score": callback.best_score,
         "eval_history": callback.history,
         "benchmark": benchmark,
