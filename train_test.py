@@ -162,6 +162,92 @@ def collect_expert_dataset(size, episodes, seed):
     }
 
 
+def collect_dagger_dataset(size, episodes, seed, model, teacher_beta):
+    env = make_env(size)
+    rng = np.random.default_rng(seed)
+
+    boards = []
+    features = []
+    actions = []
+    episode_lengths = []
+    episode_steps = []
+    terminal_events = Counter()
+    label_action_counts = Counter()
+    control_action_counts = Counter()
+    control_source_counts = Counter()
+
+    try:
+        for episode in range(episodes):
+            obs, _ = env.reset(seed=seed + episode)
+            solver = GreedySolver(env.snake)
+            done = False
+            info = {}
+
+            while not done:
+                teacher_action = direction_to_relative_action(
+                    env.snake.direc,
+                    solver.next_direc(),
+                )
+                boards.append(obs["board"].copy())
+                features.append(obs["features"].copy())
+                actions.append(teacher_action)
+                label_action_counts[teacher_action] += 1
+
+                use_teacher = rng.random() < teacher_beta
+                if use_teacher:
+                    action = teacher_action
+                    control_source_counts["teacher"] += 1
+                else:
+                    action, _ = model.predict(obs, deterministic=True)
+                    action = int(action)
+                    control_source_counts["student"] += 1
+
+                control_action_counts[int(action)] += 1
+                obs, _, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
+
+            episode_lengths.append(info["snake_len"])
+            episode_steps.append(info["steps"])
+            terminal_events[info["event"]] += 1
+    finally:
+        env.close()
+
+    total_control_steps = control_source_counts["teacher"] + control_source_counts["student"]
+
+    return {
+        "board": np.stack(boards).astype(np.float32),
+        "features": np.stack(features).astype(np.float32),
+        "actions": np.asarray(actions, dtype=np.int64),
+        "summary": {
+            "episodes": episodes,
+            "transitions": int(len(actions)),
+            "teacher_beta": float(teacher_beta),
+            "avg_rollout_length": float(np.mean(episode_lengths)),
+            "avg_rollout_steps": float(np.mean(episode_steps)),
+            "max_rollout_length": int(np.max(episode_lengths)),
+            "teacher_control_rate": float(
+                control_source_counts["teacher"] / max(total_control_steps, 1)
+            ),
+            "terminal_events": dict(terminal_events),
+            "label_action_counts": {
+                str(k): int(v) for k, v in sorted(label_action_counts.items())
+            },
+            "control_action_counts": {
+                str(k): int(v) for k, v in sorted(control_action_counts.items())
+            },
+            "control_source_counts": dict(control_source_counts),
+        },
+    }
+
+
+def merge_datasets(left, right):
+    return {
+        "board": np.concatenate([left["board"], right["board"]], axis=0),
+        "features": np.concatenate([left["features"], right["features"]], axis=0),
+        "actions": np.concatenate([left["actions"], right["actions"]], axis=0),
+    }
+
+
 def pretrain_from_expert(
     model,
     dataset,
@@ -333,8 +419,21 @@ def parse_args():
     parser.add_argument("--imitation-epochs", type=int, default=8)
     parser.add_argument("--imitation-batch-size", type=int, default=256)
     parser.add_argument("--imitation-lr", type=float, default=1e-3)
+    parser.add_argument("--dagger-rounds", type=int, default=0)
+    parser.add_argument("--dagger-episodes", type=int, default=30)
+    parser.add_argument("--dagger-beta-start", type=float, default=0.7)
+    parser.add_argument("--dagger-beta-end", type=float, default=0.2)
+    parser.add_argument("--dagger-epochs", type=int, default=3)
+    parser.add_argument("--dagger-lr", type=float, default=5e-4)
     parser.add_argument("--skip-imitation", action="store_true")
     return parser.parse_args()
+
+
+def interpolation_value(start, end, index, total):
+    if total <= 1:
+        return float(start)
+    fraction = index / float(total - 1)
+    return float(start + ((end - start) * fraction))
 
 
 def main():
@@ -353,9 +452,11 @@ def main():
     )
 
     model = build_model(env, seed=args.seed, warm_start=not args.skip_imitation)
+    callback.init_callback(model)
 
     imitation_results = None
     expert_summary = None
+    aggregation_results = []
     if not args.skip_imitation:
         print("collecting expert demonstrations...")
         expert_dataset = collect_expert_dataset(
@@ -374,11 +475,53 @@ def main():
             batch_size=args.imitation_batch_size,
             learning_rate=args.imitation_lr,
         )
-        callback.init_callback(model)
         callback.evaluate_now(label="post_imitation", timesteps=0)
 
-    print("train start...")
-    model.learn(total_timesteps=args.train_steps, callback=callback, progress_bar=False)
+        aggregated_dataset = expert_dataset
+        for round_idx in range(args.dagger_rounds):
+            teacher_beta = interpolation_value(
+                args.dagger_beta_start,
+                args.dagger_beta_end,
+                round_idx,
+                args.dagger_rounds,
+            )
+            round_number = round_idx + 1
+
+            print(f"collecting dagger round {round_number}...")
+            dagger_dataset = collect_dagger_dataset(
+                size=args.size,
+                episodes=args.dagger_episodes,
+                seed=args.seed + (round_number * 10_000),
+                model=model,
+                teacher_beta=teacher_beta,
+            )
+            print("dagger", json.dumps({"round": round_number, **dagger_dataset["summary"]}))
+
+            aggregated_dataset = merge_datasets(aggregated_dataset, dagger_dataset)
+            dagger_fit = pretrain_from_expert(
+                model=model,
+                dataset=aggregated_dataset,
+                epochs=args.dagger_epochs,
+                batch_size=args.imitation_batch_size,
+                learning_rate=args.dagger_lr,
+            )
+            eval_metrics = callback.evaluate_now(
+                label=f"dagger_round_{round_number}",
+                timesteps=0,
+            )
+            aggregation_results.append(
+                {
+                    "round": round_number,
+                    "combined_transitions": int(aggregated_dataset["actions"].shape[0]),
+                    "rollout": dagger_dataset["summary"],
+                    "train": dagger_fit,
+                    "eval": eval_metrics,
+                }
+            )
+
+    if args.train_steps > 0:
+        print("train start...")
+        model.learn(total_timesteps=args.train_steps, callback=callback, progress_bar=False)
 
     best_model_zip = args.output_dir / "best_model.zip"
     if not best_model_zip.exists():
@@ -401,9 +544,16 @@ def main():
             "imitation_epochs": args.imitation_epochs,
             "imitation_batch_size": args.imitation_batch_size,
             "imitation_lr": args.imitation_lr,
+            "dagger_rounds": args.dagger_rounds,
+            "dagger_episodes": args.dagger_episodes,
+            "dagger_beta_start": args.dagger_beta_start,
+            "dagger_beta_end": args.dagger_beta_end,
+            "dagger_epochs": args.dagger_epochs,
+            "dagger_lr": args.dagger_lr,
         },
         "expert_summary": expert_summary,
         "imitation": imitation_results,
+        "aggregation_rounds": aggregation_results,
         "best_eval_selection_score": callback.best_score,
         "eval_history": callback.history,
         "benchmark": benchmark,
