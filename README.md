@@ -4,7 +4,7 @@ This is a fork of chynl's [Snake](https://github.com/chynl/snake) repo, adjusted
 
 Test results (averaged over 1000 episodes):
 
-| Solver | Average Length | Average Steps | Average Length / Average Steps | \(Average Length\)^2 /Average Steps |
+| Solver | Average Length | Average Steps | Average Length / Average Steps | \(Average Length\)^2 / Average Steps |
 | :----: | :------------: | :-----------: | :----------------------------: | :---------------------------------: |
 |BENCHMARK Hamilton|**\[63.93\]**|717.83|0.089|**\[5.694\]**|
 |BENCHMARK Greedy|60.15|904.56|0.066|3.100|
